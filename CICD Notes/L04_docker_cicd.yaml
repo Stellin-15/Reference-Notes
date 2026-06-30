@@ -1,0 +1,419 @@
+# ============================================================
+# L04: Docker in CI/CD — Build, Scan, Sign, and Publish
+# ============================================================
+# WHAT: A complete GitHub Actions workflow for building multi-platform
+#       Docker images, pushing to GHCR, scanning for vulnerabilities,
+#       generating SBOMs, and signing with keyless Cosign — with full
+#       layer caching and a matrix to build multiple images in parallel.
+# WHY:  Docker images are the deployment unit for most modern services.
+#       Getting the CI/CD pipeline right means: fast builds (caching),
+#       secure images (scanning + signing), auditability (SBOM),
+#       and supporting ARM as well as AMD64 (multi-platform).
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   Why layer caching matters in CI:
+#     Without caching: each run re-downloads the base image, reinstalls
+#     all system packages, re-installs all Python/Node packages from scratch.
+#     A typical Python service: 2-3 min per build.
+#     With GitHub Actions cache: only changed layers rebuild.
+#     If only source code changed (last layer): 10-15 sec rebuild.
+#     The key insight: Docker layers are content-addressed.
+#     If the content that produces a layer hasn't changed (same hash),
+#     Docker skips that layer and uses the cached result.
+#
+#   BuildKit (DOCKER_BUILDKIT=1):
+#     Modern Docker build engine. Benefits over legacy builder:
+#       - Parallel stage builds (multi-stage Dockerfiles run concurrently).
+#       - Better cache hashing (more accurate cache hits).
+#       - RUN --mount=type=cache: cache pip/npm/apt dirs between builds.
+#       - RUN --mount=type=secret: pass secrets without baking into image.
+#       - Produces OCI-compliant images (required for SBOM tools).
+#     docker/setup-buildx-action@v3 installs BuildKit automatically.
+#
+# PRODUCTION USE CASE:
+#   Three microservices (api, worker, nginx) in a monorepo.
+#   On every push to main, all three are built in parallel (matrix),
+#   pushed to GHCR, scanned for CVEs, signed with Cosign OIDC,
+#   and an SBOM is generated for compliance. Old images are cleaned
+#   up weekly to control storage costs.
+#
+# COMMON MISTAKES:
+#   1. Not using cache-from → every PR build starts cold (slow).
+#   2. Pushing on every branch → GHCR fills up with images for feature branches.
+#      Only push on main (or tags). Use load instead of push for PR builds.
+#   3. Not scanning before push → vulnerable images reach registry.
+#      Scan BEFORE push, or fail the workflow on CRITICAL findings.
+#   4. Forgetting QEMU for multi-platform → ARM builds silently skip.
+#   5. Using :latest tag → unclear which commit is deployed.
+#      Always use SHA-based tags for traceability.
+
+name: Docker Build and Publish
+
+# ── Triggers ─────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]          # semantic version tags trigger release builds
+  pull_request:
+    branches: [main]          # build on PR (but don't push to registry)
+  schedule:
+    - cron: "0 2 * * 0"       # weekly at 02:00 UTC Sunday (registry cleanup)
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Permissions ───────────────────────────────────────────────
+# These are MINIMUM required permissions (principle of least privilege).
+permissions:
+  contents: read          # checkout code
+  packages: write         # push to GHCR
+  security-events: write  # upload SARIF to Code Scanning
+  id-token: write         # Cosign OIDC keyless signing (must be write)
+
+# ── Global env ────────────────────────────────────────────────
+env:
+  REGISTRY: ghcr.io
+  # IMAGE_NAME: owner/repo — e.g., myorg/myapp
+  # Using github.repository gives: "owner/repo" automatically.
+  IMAGE_BASE: ghcr.io/${{ github.repository }}
+
+# =============================================================
+# JOB: build-and-push — Build image matrix and push to GHCR
+# =============================================================
+# Matrix strategy: builds api, worker, nginx images IN PARALLEL.
+# GitHub runs one job per matrix item on separate runners.
+# Total build time ≈ slowest single image (not sum of all images).
+jobs:
+  build-and-push:
+    name: Build & Push (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Output image digest so downstream jobs (scan, sign) know which exact
+    # image to operate on. Digest is immutable (unlike tags which can be moved).
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-metadata: ${{ steps.meta.outputs.json }}
+
+    strategy:
+      fail-fast: false  # if api build fails, still build worker and nginx
+      matrix:
+        include:
+          # Each matrix item: service name, Dockerfile path, build context.
+          - service: api
+            dockerfile: services/api/Dockerfile
+            context: .
+          - service: worker
+            dockerfile: services/worker/Dockerfile
+            context: .
+          - service: nginx
+            dockerfile: services/nginx/Dockerfile
+            context: services/nginx/
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # QEMU: emulates ARM/other CPU architectures on the AMD64 runner.
+      # Without QEMU, linux/arm64 builds fail silently or produce broken images.
+      # Needed for: linux/arm64 (Apple M1/M2 servers, AWS Graviton).
+      - name: Set up QEMU (multi-platform emulation)
+        uses: docker/setup-qemu-action@v3
+
+      # Buildx: installs the BuildKit-based builder.
+      # Creates a builder instance that supports multi-platform builds.
+      # driver: docker-container → runs BuildKit in a separate Docker container.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login to GHCR (GitHub Container Registry).
+      # registry: ghcr.io (not hub.docker.com).
+      # username: github.actor (the user or bot running the workflow).
+      # password: GITHUB_TOKEN — automatically provided, no secret setup needed.
+      # On PRs from forks, GITHUB_TOKEN has read-only permissions → login may fail.
+      # Solution: skip push on PRs (see push condition in build step).
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action: generates Docker tags and labels from Git context.
+      # This is the canonical way to handle tagging logic.
+      #
+      # Tag types explained:
+      #   sha:          ghcr.io/org/app:sha-abc1234  — immutable, always unique
+      #   semver:       ghcr.io/org/app:1.2.3       — from git tag "v1.2.3"
+      #                 ghcr.io/org/app:1.2         — major.minor alias
+      #                 ghcr.io/org/app:1           — major alias
+      #   ref/branch:   ghcr.io/org/app:main        — mutable, points to latest main build
+      #   ref/pr:       ghcr.io/org/app:pr-42       — per-PR image (not pushed, just tagged)
+      #   raw:latest:   ghcr.io/org/app:latest      — only on main branch pushes
+      #
+      # labels: OCI image annotations (author, source, revision) for traceability.
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      # build-push-action: the main build step.
+      #
+      # context:    build context path (what COPY sees in the Dockerfile)
+      # file:       path to Dockerfile (relative to context or repo root)
+      # push:       true only on main branch push (not on PRs)
+      #             PRs still build and test the image (via load: true) but
+      #             don't pollute the registry with unmerged images.
+      # platforms:  build for AMD64 (x86 servers) and ARM64 (Graviton/M-series).
+      #             Each platform produces a separate manifest; pushed together
+      #             as a multi-arch image (docker pull auto-selects correct arch).
+      # tags:       generated by metadata-action above
+      # labels:     OCI labels (also from metadata-action)
+      #
+      # cache-from/cache-to:
+      #   type=gha: uses GitHub Actions cache backend (built into Buildx).
+      #   mode=max: cache ALL intermediate layers, not just the final image.
+      #             Default mode (min) only caches the last stage — misses
+      #             dependency installation layers which are the most expensive.
+      #   scope:    separate cache per service so api doesn't evict worker cache.
+      #
+      # build-args: pass dynamic values into the Dockerfile (ARG statements).
+      #   BUILD_DATE: bakes timestamp into the image for debugging.
+      #   GIT_SHA:    bakes commit hash (traceable: which code is in this image).
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            GIT_SHA=${{ github.sha }}
+            SERVICE_NAME=${{ matrix.service }}
+
+# =============================================================
+# JOB: scan — Vulnerability scanning of built image
+# =============================================================
+# What Trivy scans:
+#   1. OS packages: distro packages (apt, apk) with known CVEs.
+#   2. Language packages: Python pip, Node npm, Go mod, etc.
+#   3. Dockerfile misconfigurations: running as root, exposed ports, etc.
+#   4. Secrets: hardcoded tokens/passwords accidentally baked in.
+#
+# Scan the image AFTER build but BEFORE it's broadly distributed.
+# If CRITICAL CVE found: exit-code 1 fails the workflow.
+# The image is already pushed at this point — in stricter setups,
+# build to a staging registry, scan, then promote to production.
+  scan:
+    name: Vulnerability Scan (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-and-push]
+    if: github.event_name != 'schedule'  # skip scan on weekly cleanup run
+
+    permissions:
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, nginx]
+
+    steps:
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_BASE }}-${{ matrix.service }}:sha-${{ github.sha }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          # exit-code 1: fail the job if CRITICAL vulnerabilities are found.
+          # Set to 0 during initial rollout to see findings without blocking deploys.
+          exit-code: "1"
+          # ignore-unfixed: skip CVEs where no patched version exists yet.
+          # These are real vulnerabilities but there's nothing you can do today.
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()  # upload results even if scan found issues
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+# =============================================================
+# JOB: sbom — Generate Software Bill of Materials
+# =============================================================
+# SBOM (Software Bill of Materials): a complete inventory of every
+# component in your container image:
+#   - OS packages (libc, openssl, etc.)
+#   - Python packages (requests, pydantic, etc.)
+#   - Their versions and licenses
+#
+# Why SBOM matters:
+#   1. Incident response: "Log4Shell hit us — which images use log4j?"
+#      → grep the SBOM. Without it: manual audit of every Dockerfile.
+#   2. License compliance: "We can't ship GPL code in our proprietary product."
+#      → check SBOM for GPL packages before release.
+#   3. Regulatory: US Executive Order 14028 mandates SBOMs for federal software.
+#   4. Auditability: prove to customers what's in your software supply chain.
+#
+# spdx-json format: SPDX is an ISO standard for SBOMs (ISO 5962:2021).
+# Widely understood by compliance tooling.
+  sbom:
+    name: Generate SBOM (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-and-push]
+    if: github.event_name != 'schedule'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, nginx]
+
+    steps:
+      - name: Generate SBOM with Anchore syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_BASE }}-${{ matrix.service }}:sha-${{ github.sha }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+          # upload-artifact: true → SBOM is stored as a workflow artifact.
+          # In production: also push the SBOM to the registry alongside the image.
+
+# =============================================================
+# JOB: sign — Keyless image signing with Cosign + OIDC
+# =============================================================
+# Keyless signing: no private key file to manage, rotate, or secure.
+# How it works:
+#   1. GitHub OIDC provider issues a short-lived JWT (id_token) to the workflow.
+#      JWT contains: repo name, branch, run ID, workflow name.
+#   2. Cosign sends the JWT to Sigstore's Fulcio CA.
+#   3. Fulcio verifies the JWT with GitHub, issues a short-lived certificate
+#      binding your GitHub identity to a signing key.
+#   4. Cosign signs the image digest with the key; records the signature
+#      in Sigstore's transparency log (Rekor).
+#   5. Anyone can verify: cosign verify --certificate-identity-regexp ...
+#      without you sharing any secret.
+#
+# Result: every production image is cryptographically signed with a
+# verifiable attestation of: "GitHub Actions, repo X, SHA Y, built this."
+# Admission controllers (Gatekeeper, Kyverno) can enforce: only signed
+# images from your repo may run in the cluster.
+  sign:
+    name: Sign Image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [scan, sbom]  # only sign if scan and SBOM completed
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      id-token: write  # REQUIRED for OIDC token (keyless signing)
+      packages: write  # write signature to GHCR alongside the image
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, nginx]
+
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Sign by digest (not tag). Digests are immutable — a tag can be
+      # overwritten, but a digest always refers to the exact same image bytes.
+      # The digest is the sha256 hash of the image manifest.
+      - name: Sign image with Cosign (keyless OIDC)
+        run: |
+          IMAGE="${{ env.IMAGE_BASE }}-${{ matrix.service }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:sha-${{ github.sha }}" \
+            --format '{{.Manifest.Digest}}')
+
+          # cosign sign: attaches the signature to the image in the registry.
+          # --yes: non-interactive (required in CI).
+          # Cosign uses the OIDC token from ACTIONS_ID_TOKEN_REQUEST_URL automatically.
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+          echo "Signed ${IMAGE}@${DIGEST}"
+
+# =============================================================
+# JOB: registry-cleanup — Delete old GHCR image versions weekly
+# =============================================================
+# Images accumulate in GHCR: every push creates a new tagged version.
+# Over months, this wastes storage (billed per GB/month on GHCR).
+# Strategy: keep the last 5 versions, delete anything older than 30 days.
+# Runs weekly (schedule trigger) so it never blocks CI.
+  registry-cleanup:
+    name: GHCR Cleanup (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'schedule'
+
+    permissions:
+      packages: write  # required to delete package versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, nginx]
+
+    steps:
+      # actions/delete-package-versions: deletes old GHCR package versions.
+      # package-name: must match the image name in GHCR (repo-service format).
+      # min-versions-to-keep: always keep at least 5 (safety net for rollback).
+      # delete-only-pre-release-versions: false — delete all old versions.
+      # older-than: skip versions newer than 30 days.
+      - name: Delete old image versions from GHCR
+        uses: actions/delete-package-versions@v5
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          package-name: ${{ github.event.repository.name }}-${{ matrix.service }}
+          package-type: container
+          min-versions-to-keep: 5
+          delete-only-pre-release-versions: false
+          # Versions older than 30 days with fewer than min-versions-to-keep
+          # remaining are preserved regardless of age.
+          ignore-versions: "^(latest|main|v\\d+\\.\\d+\\.\\d+)$"
+
+      # Alternative: use gh api for more control over deletion logic.
+      # This example lists all versions and deletes those > 30 days old
+      # while keeping the minimum count:
+      # - name: Delete old versions via gh api
+      #   run: |
+      #     PACKAGE="myapp-${{ matrix.service }}"
+      #     CUTOFF=$(date -d "30 days ago" --iso-8601=seconds)
+      #     gh api \
+      #       "orgs/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions" \
+      #       --jq ".[] | select(.created_at < \"${CUTOFF}\") | .id" |
+      #     while read id; do
+      #       gh api --method DELETE \
+      #         "orgs/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions/${id}"
+      #     done
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

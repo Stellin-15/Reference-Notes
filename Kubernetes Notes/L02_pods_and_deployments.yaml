@@ -1,0 +1,663 @@
+# =============================================================================
+# WHAT: Kubernetes Pods and Deployments — Complete Production Reference
+# WHY:  Pod is the atomic unit of K8s scheduling. Deployment adds rollout
+#       control, self-healing, and scaling. You will write these configs daily.
+#       Wrong settings cause OOMKills, deployment outages, and slow rollouts.
+# LEVEL: Senior / Architect
+# =============================================================================
+
+# =============================================================================
+# CONCEPT OVERVIEW
+# =============================================================================
+# POD: One or more containers that share:
+#   - Network namespace (same IP, same loopback, communicate via localhost)
+#   - Storage volumes
+#   - Lifecycle (scheduled together, die together)
+#
+# WHY multiple containers in one Pod?
+#   Sidecar pattern: helper container enhances the main container.
+#   Examples: log shipper, service mesh proxy (Envoy), secret injector.
+#   All sidecars share the Pod's IP and volumes.
+#
+# WHY never run bare Pods (without Deployment)?
+#   - Bare Pod dies → stays dead. No controller restarts it.
+#   - Node dies → bare Pod is lost forever. Deployment reschedules to another node.
+#   - No rolling update capability.
+#   - No version history or rollback.
+#   Only exception: one-time Jobs (use Job or CronJob resource instead).
+#
+# DEPLOYMENT: manages a ReplicaSet, which manages Pods.
+#   Deployment → ReplicaSet → Pods
+#   Rollout creates a new ReplicaSet and gradually shifts traffic.
+#   Old ReplicaSets retained for rollback (controlled by revisionHistoryLimit).
+# =============================================================================
+
+# =============================================================================
+# PRODUCTION USE CASE
+# =============================================================================
+# Payment API service:
+#   - 3 replicas for availability (spread across 3 availability zones)
+#   - Resource limits to prevent noisy neighbor
+#   - Liveness + readiness probes for zero-downtime deployments
+#   - Secrets via secretKeyRef (DB password from K8s Secret)
+#   - Init container to wait for DB before starting
+#   - Sidecar for shipping structured logs to Elasticsearch
+# =============================================================================
+
+# =============================================================================
+# COMMON MISTAKES
+# =============================================================================
+# 1. Setting memory LIMIT without request (limit becomes the request implicitly).
+#    Always set both request AND limit explicitly.
+# 2. Setting CPU limit too low → CPU throttling (app slow, not OOMKilled).
+#    CPU throttling is silent and hard to diagnose. Prefer no CPU limit or
+#    set limit = 2-4× request.
+# 3. requests == limits for memory → Guaranteed QoS class (scheduler won't
+#    overcommit). Good. But for CPU, this wastes capacity.
+# 4. livenessProbe on startup too eager → container restart loops (CrashLoopBackOff)
+#    before app finishes initializing. Use startupProbe.
+# 5. No readinessProbe → traffic routed to pod that isn't ready yet.
+# 6. Not setting terminationGracePeriodSeconds appropriately → SIGKILL during
+#    in-flight requests.
+# 7. imagePullPolicy: Always in production → slow rollouts, pulls on every pod start.
+#    Use immutable tags (SHA digest) + IfNotPresent.
+# =============================================================================
+
+---
+# ===========================================================================
+# PART 1: NAMESPACE
+# Create logical isolation. Most resources are namespace-scoped.
+# In production: one namespace per team or per environment (not both).
+# Cluster-scoped resources (Nodes, PersistentVolumes, ClusterRoles) are NOT namespace-scoped.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments
+  labels:
+    # Labels used by NetworkPolicy selectors and monitoring.
+    team: payments-engineering
+    environment: production
+    # Istio auto-injection label (if using service mesh).
+    # istio-injection: enabled
+
+---
+# ===========================================================================
+# PART 2: A STANDALONE POD (Educational — use Deployment in production)
+# This shows the full Pod spec. Deployment uses the same spec under .spec.template.
+# ===========================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payment-api-example-pod
+  namespace: payments
+
+  # LABELS: key-value pairs used for:
+  #   1. Service selector (how Service finds this Pod)
+  #   2. Network policies (allow traffic between labeled pods)
+  #   3. kubectl queries: kubectl get pods -l app=payment-api
+  #   4. Monitoring: Prometheus target discovery
+  # Must match Deployment's spec.selector.matchLabels.
+  labels:
+    app: payment-api
+    version: "1.4.2"             # Useful for canary deployments
+    component: backend
+    team: payments-engineering
+
+  # ANNOTATIONS: non-identifying metadata. NOT used for selection.
+  # Use for: tool configuration, audit info, documentation links.
+  annotations:
+    prometheus.io/scrape: "true"           # Prometheus auto-discovery
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+    deployment-time: "2025-06-30T10:00:00Z"
+    git-commit: "abc123def"                 # Traceability: which commit is running
+    runbook: "https://wiki.internal/payment-api-runbook"
+
+spec:
+  # RESTART POLICY:
+  # Always (default): restart on any exit. For long-running services.
+  # OnFailure: restart only on non-zero exit. For Jobs.
+  # Never: don't restart. For one-shot debugging pods.
+  restartPolicy: Always
+
+  # GRACE PERIOD: seconds between SIGTERM and SIGKILL.
+  # Your app has this long to finish in-flight requests and clean up.
+  # Steps: K8s sends SIGTERM → app shuts down gracefully → if still alive
+  # after terminationGracePeriodSeconds → SIGKILL (no further cleanup possible).
+  # Default: 30 seconds. Set higher for apps with long request processing.
+  # For Kafka consumers: set high enough to finish processing current batch.
+  terminationGracePeriodSeconds: 60
+
+  # SERVICE ACCOUNT: grants the Pod identity for K8s API access.
+  # Default service account has no permissions. Create dedicated SA per service.
+  # Used for: IRSA (AWS), Workload Identity (GCP), Vault auth.
+  serviceAccountName: payment-api-sa
+
+  # ===========================================================================
+  # INIT CONTAINERS: run to completion BEFORE app containers start.
+  # All init containers run sequentially. If any fails, pod restarts.
+  # Use cases:
+  #   - Wait for a dependency (DB, queue) to be ready before starting app.
+  #   - Run database migrations (must complete before serving traffic).
+  #   - Download config/secrets from external system.
+  #   - Set up filesystem permissions for shared volumes.
+  # ===========================================================================
+  initContainers:
+    - name: wait-for-database
+      # Lightweight image for shell tools. Alpine = ~5MB.
+      image: busybox:1.35
+      imagePullPolicy: IfNotPresent
+
+      # Poll until DB is reachable. nc (netcat) tests TCP connection.
+      # -z = zero I/O (port scan only), -w 1 = 1 second timeout.
+      # Loop ensures we don't start app until DB accepts connections.
+      # In production: also run schema migrations here (flyway, alembic).
+      command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for database to be ready..."
+          until nc -z -w 1 postgres-primary.payments.svc.cluster.local 5432; do
+            echo "Database not ready, sleeping 2 seconds..."
+            sleep 2
+          done
+          echo "Database is ready. Starting application."
+
+    - name: run-migrations
+      image: payment-api:1.4.2
+      imagePullPolicy: IfNotPresent
+      command: ["python", "manage.py", "migrate", "--no-input"]
+      env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: payment-api-secrets   # Name of K8s Secret object
+              key: database-url           # Key within the Secret's data map
+
+  # ===========================================================================
+  # MAIN CONTAINERS
+  # Most pods have exactly one main container. Sidecars add auxiliary functions.
+  # ===========================================================================
+  containers:
+
+    # =========================================================================
+    # MAIN APP CONTAINER
+    # =========================================================================
+    - name: payment-api
+      image: payment-api:1.4.2
+      # IMAGE PULL POLICY options:
+      #   Always: pull from registry on every pod start. Ensures latest (mutable tag).
+      #     Use ONLY if using mutable tags like :latest — AVOID in production.
+      #   IfNotPresent: pull only if not cached on node. Fast startup. Use with
+      #     immutable tags (version numbers or SHA digests).
+      #   Never: never pull — must exist on node. For air-gapped environments.
+      # BEST PRACTICE: Use SHA digest tags + IfNotPresent:
+      #   image: payment-api@sha256:abc123... (immutable, IfNotPresent = safe)
+      imagePullPolicy: IfNotPresent
+
+      ports:
+        - name: http             # Named ports referenced by probes and Services.
+          containerPort: 8080    # Port the container listens on.
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090    # Prometheus metrics on separate port.
+          protocol: TCP
+
+      # ========================================================================
+      # RESOURCE REQUESTS AND LIMITS
+      # ========================================================================
+      # REQUESTS: guaranteed resources. Scheduler uses this for placement.
+      #   - K8s scheduler places pod on node with at least this much AVAILABLE.
+      #   - At runtime: pod is guaranteed to get at least this much.
+      #
+      # LIMITS: hard ceiling. Enforced by Linux cgroups.
+      #   - CPU limit: enforced by CPU throttling (not OOMKill). Pod slows down.
+      #     If CPU limit = 0.5 core, pod can burst but averages ≤ 0.5 core.
+      #   - Memory limit: enforced by OOMKiller. Pod KILLED if it exceeds limit.
+      #     OOMKill appears as container exit code 137.
+      #
+      # WHY requests ≠ limits (burstable QoS):
+      #   - Allows pods to use spare capacity when available.
+      #   - Cost-efficient: don't need to reserve peak capacity all the time.
+      #   - Risk: if node is under memory pressure, burstable pods are evicted first.
+      #
+      # QoS Classes (scheduler + eviction priority):
+      #   Guaranteed: requests == limits for ALL resources. Never evicted unless
+      #     exceeds limits. Most important pods.
+      #   Burstable: requests < limits, or partial spec. Normal priority.
+      #   BestEffort: NO requests or limits. First to be evicted. Don't use in prod.
+      #
+      # CPU units: 1 CPU = 1000m (millicores). 500m = 0.5 core. 100m = 0.1 core.
+      # Memory units: Mi = mebibytes (1024²), Gi = gibibytes (1024³). Use Mi/Gi not MB/GB.
+      resources:
+        requests:
+          cpu: "250m"            # 0.25 cores guaranteed. Scheduler finds node with this free.
+          memory: "256Mi"        # 256 MiB guaranteed.
+        limits:
+          cpu: "1000m"           # 1 core max. Throttled if exceeds (NOT killed).
+          memory: "512Mi"        # 512 MiB max. OOMKilled if exceeds. Set conservatively.
+          # Tip: set memory limit = 1.5-2× memory request.
+          # If app regularly hits limit → OOMKill loop. Increase limit or fix memory leak.
+
+      # ========================================================================
+      # ENVIRONMENT VARIABLES
+      # ========================================================================
+      env:
+        # LITERAL VALUE: fine for non-sensitive config.
+        - name: APP_ENV
+          value: "production"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: PORT
+          value: "8080"
+
+        # FROM SECRET: value pulled from K8s Secret at pod start.
+        # Secret data is base64-encoded but NOT encrypted by default.
+        # Without etcd encryption, anyone with Secret GET permission can read it.
+        # Secret is injected as env var — appears in process environment.
+        # Downside vs volume mount: value not updated if Secret changes (needs pod restart).
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: payment-api-secrets   # Secret name
+              key: db-password            # Key within Secret
+              optional: false             # Pod fails to start if key missing (default: false)
+
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: payment-api-secrets
+              key: stripe-secret-key
+
+        # FROM CONFIGMAP: non-sensitive configuration.
+        # ConfigMap changes don't affect running pods via env vars.
+        # Pod must restart to pick up new ConfigMap values (see volume mount section).
+        - name: FEATURE_FLAG_NEW_CHECKOUT
+          valueFrom:
+            configMapKeyRef:
+              name: payment-api-config
+              key: feature-flag-new-checkout
+              optional: true              # Pod starts even if key missing (default value used)
+
+        # DOWNWARD API: expose pod metadata as env vars.
+        # Useful for: logging (include pod name in logs), metrics (label cardinality).
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: MEMORY_LIMIT              # Pass resource limits INTO the container.
+          valueFrom:                       # Useful for JVM heap sizing: -Xmx = MEMORY_LIMIT × 0.75
+            resourceFieldRef:
+              containerName: payment-api
+              resource: limits.memory
+
+      # ========================================================================
+      # PROBES: Health checking
+      # ========================================================================
+      # K8s uses probes to determine pod health. Three types serve different purposes.
+      #
+      # STARTUP PROBE: Is the app done starting up yet?
+      #   - Disables liveness probe until startupProbe succeeds.
+      #   - Prevents premature liveness restarts for slow-starting apps (JVM warmup, etc.)
+      #   - failureThreshold × periodSeconds = max allowed startup time.
+      #   - After success: startupProbe stops running, liveness takes over.
+      startupProbe:
+        httpGet:
+          path: /healthz/startup       # Endpoint returns 200 only when fully initialized.
+          port: http                   # Named port reference. Cleaner than hardcoded number.
+        # Allow up to 5 minutes for startup (30 × 10s = 300s).
+        # Covers slow JVM startup, DB migration, warmup cache loading.
+        initialDelaySeconds: 10        # Wait 10s before first check.
+        periodSeconds: 10              # Check every 10 seconds.
+        failureThreshold: 30           # Give up (and restart) after 30 failures = 300s total.
+        successThreshold: 1            # One success = startup complete.
+
+      # LIVENESS PROBE: Is the app still alive and responsive?
+      #   - Failure action: container is RESTARTED.
+      #   - Use for detecting deadlocks, infinite loops, OOM conditions.
+      #   - DO NOT probe dependencies (DB, external APIs). If DB is down,
+      #     restarting your pod doesn't help. Use readinessProbe for dependencies.
+      #   - Probe your own health only (can I handle requests?).
+      livenessProbe:
+        httpGet:
+          path: /healthz/live          # Returns 200 if app is alive.
+          port: http
+        initialDelaySeconds: 0         # startupProbe handles initial delay — set to 0.
+        periodSeconds: 15              # Check every 15 seconds.
+        timeoutSeconds: 5              # Probe times out after 5s. Counts as failure.
+        failureThreshold: 3            # Restart after 3 consecutive failures (45s of failure).
+        successThreshold: 1            # Only one success needed to be considered alive.
+
+      # READINESS PROBE: Is the app ready to receive traffic?
+      #   - Failure action: pod REMOVED from Service endpoints (no traffic sent to it).
+      #     Container is NOT restarted. It just stops receiving traffic.
+      #   - Use for: dependency checks (DB connected?), warmup complete, circuit breaker open.
+      #   - Pod starts receiving traffic only when readinessProbe passes.
+      #   - During rolling update: new pods receive traffic only after ready.
+      #     Critical for zero-downtime deployments.
+      readinessProbe:
+        httpGet:
+          path: /healthz/ready         # Returns 200 when ready for traffic.
+          port: http                   # Can check: DB connection, cache connected, etc.
+        initialDelaySeconds: 5
+        periodSeconds: 5               # Check every 5 seconds (more frequent than liveness).
+        timeoutSeconds: 3
+        failureThreshold: 2            # Remove from rotation after 2 failures (10s of failure).
+        successThreshold: 1            # Re-add to rotation immediately on success.
+
+      # ========================================================================
+      # VOLUME MOUNTS
+      # ========================================================================
+      volumeMounts:
+        # Mount the TLS secret as files. More secure than env vars for certs.
+        - name: tls-certs
+          mountPath: /etc/ssl/payment-api
+          readOnly: true               # Container cannot modify mounted secret files.
+
+        # Config file mount. Config updates reflected in ~1-2 minutes without pod restart.
+        - name: app-config
+          mountPath: /etc/payment-api
+          readOnly: true
+
+        # Ephemeral scratch space. Survives container restarts, NOT pod deletion.
+        - name: tmp-storage
+          mountPath: /tmp
+
+    # =========================================================================
+    # SIDECAR CONTAINER: Log Shipping
+    # =========================================================================
+    # Sidecar = second container in same Pod. Shares network and volumes.
+    # Pattern: main container writes logs to shared volume → sidecar ships logs.
+    # Alternative: Fluentd/Fluent Bit as DaemonSet on each node (more efficient).
+    # Use per-pod sidecar when: different log formats per service, or structured
+    # log parsing is service-specific.
+    - name: log-shipper
+      image: fluent/fluent-bit:2.1
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      volumeMounts:
+        - name: app-logs              # Same volume as main container writes to.
+          mountPath: /var/log/payment-api
+          readOnly: true              # Sidecar only reads — main container writes.
+        - name: fluent-bit-config
+          mountPath: /fluent-bit/etc
+
+  # =========================================================================
+  # VOLUMES: defined at Pod level, mounted by containers.
+  # Volume lifecycle = Pod lifecycle (NOT container lifecycle).
+  # Containers within the same Pod can share volumes.
+  # =========================================================================
+  volumes:
+    # Secret as volume: each key becomes a file. Key = filename, value = content.
+    # More secure than env vars: env vars can leak via /proc; files are more controlled.
+    # With projected volumes: can mix secrets, configmaps, serviceaccount tokens.
+    - name: tls-certs
+      secret:
+        secretName: payment-api-tls
+        defaultMode: 0400            # File permissions: read-only by owner. 0444 for group.
+
+    # ConfigMap as volume: each key becomes a file under mountPath.
+    - name: app-config
+      configMap:
+        name: payment-api-config
+
+    # emptyDir: ephemeral storage tied to Pod lifetime.
+    # Created when Pod assigned to node, deleted when Pod removed.
+    # Good for: temp files, shared memory between containers in same Pod.
+    # medium: "" = node disk. medium: Memory = RAM (tmpfs) — faster but counts against memory limit.
+    - name: tmp-storage
+      emptyDir:
+        sizeLimit: 500Mi             # Prevent runaway writes filling node disk.
+
+    - name: app-logs
+      emptyDir: {}
+
+    - name: fluent-bit-config
+      configMap:
+        name: fluent-bit-config
+
+---
+# ===========================================================================
+# PART 3: DEPLOYMENT — Production-grade rollout management
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: payments
+  labels:
+    app: payment-api
+  annotations:
+    # Track which pipeline deployed this. Used in audit logs and rollback decisions.
+    kubernetes.io/change-cause: "Deploy v1.4.2: Add 3DS2 authentication support"
+spec:
+  # NUMBER OF REPLICAS
+  # Minimum for HA: 3 (spread across 3 AZs, survive one zone failure).
+  # Use HorizontalPodAutoscaler (HPA) to scale dynamically based on CPU/RPS.
+  replicas: 3
+
+  # SELECTOR: how the Deployment finds "its" pods.
+  # Must be immutable after creation. Labels here must match template labels.
+  # Uses a subset of labels (NOT version) so rolling update works —
+  # both old and new pods are managed by same Deployment.
+  selector:
+    matchLabels:
+      app: payment-api           # MUST match .spec.template.metadata.labels.
+
+  # ROLLOUT STRATEGY
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxSurge: how many EXTRA pods above desired replicas during rollout.
+      # Expressed as absolute number or percentage (e.g., "25%").
+      # 1 extra pod during rollout = total of 4 pods briefly. Costs more, rolls faster.
+      # Set to 0 if you have strict resource budget and can't afford extra pods.
+      maxSurge: 1
+
+      # maxUnavailable: how many pods can be unavailable during rollout.
+      # 0 = zero-downtime rollout. Always have full replica count serving traffic.
+      # This is the most important setting for production deployments.
+      # If maxSurge=0 AND maxUnavailable=0: impossible (nothing would change). Error.
+      # Typical production: maxSurge=1, maxUnavailable=0.
+      maxUnavailable: 0
+
+  # minReadySeconds: pod must be in Ready state for this long before considered available.
+  # Provides a safety buffer after readinessProbe passes.
+  # Use case: catch bugs that only appear after a few seconds under load.
+  # Default: 0 (move to next pod immediately after readiness passes).
+  minReadySeconds: 30
+
+  # revisionHistoryLimit: how many old ReplicaSets to keep for rollback.
+  # Default: 10. Lower to save etcd space in clusters with many deployments.
+  # kubectl rollout undo will use these saved ReplicaSets.
+  revisionHistoryLimit: 5
+
+  # POD TEMPLATE: same as a Pod spec, but without apiVersion/kind/name.
+  # Deployment creates pods using this template. Labels MUST match selector.
+  template:
+    metadata:
+      labels:
+        app: payment-api           # Must match selector.matchLabels.
+        version: "1.4.2"
+        component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        # Trigger rolling update when config changes (workaround for ConfigMap hash).
+        # kubectl set annotation deployment/payment-api configmap-hash=abc123
+    spec:
+      # (Full spec as shown in Pod section above. Abbreviated here for clarity.)
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: payment-api-sa
+
+      # POD DISRUPTION BUDGET: ensures minimum pods during voluntary disruptions.
+      # (Defined separately — see PodDisruptionBudget resource.)
+      # Voluntary disruptions: node drain, cluster upgrade, manual delete.
+      # Involuntary: node failure, OOMKill (PDB doesn't protect against these).
+
+      # TOPOLOGY SPREAD: spread pods across zones for HA.
+      # maxSkew: max difference in pod count between zones. 1 = even spread.
+      # whenUnsatisfiable: DoNotSchedule (strict) or ScheduleAnyway (best-effort).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone   # Spread across availability zones.
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: payment-api
+
+      # AFFINITY: prefer nodes with certain characteristics.
+      # podAntiAffinity: don't put two replicas on the same node.
+      # If node fails, we lose at most 1 replica (not 2).
+      affinity:
+        podAntiAffinity:
+          # preferredDuringSchedulingIgnoredDuringExecution: soft rule.
+          # requiredDuringSchedulingIgnoredDuringExecution: hard rule (may leave pod pending).
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100             # Highest preference (1-100).
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: payment-api
+                topologyKey: kubernetes.io/hostname   # Don't put 2 replicas on same node.
+
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.35
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z -w 1 postgres-primary.payments.svc.cluster.local 5432; do
+                sleep 2
+              done
+
+      containers:
+        - name: payment-api
+          image: payment-api:1.4.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-api-secrets
+                  key: db-password
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/ssl/payment-api
+              readOnly: true
+            - name: app-config
+              mountPath: /etc/payment-api
+              readOnly: true
+
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: payment-api-tls
+            defaultMode: 0400
+        - name: app-config
+          configMap:
+            name: payment-api-config
+
+---
+# ===========================================================================
+# PART 4: PODISRUPTIONBUDGET
+# Ensures rolling upgrades and node drains don't take down too many pods.
+# Voluntary disruptions (node drain, cluster upgrade) respect PDB.
+# Involuntary disruptions (node crash, OOM) do NOT respect PDB.
+# ===========================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-api-pdb
+  namespace: payments
+spec:
+  # minAvailable: at least this many pods must be available.
+  # With 3 replicas and minAvailable=2: only 1 can be disrupted at a time.
+  # Alternative: maxUnavailable: "33%" — same effect for 3 replicas.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: payment-api
+
+# ===========================================================================
+# KUBECTL ROLLOUT COMMANDS REFERENCE (as comments):
+# ===========================================================================
+# Check rollout status (blocks until complete or fails):
+#   kubectl rollout status deployment/payment-api -n payments
+#
+# View rollout history (shows all revisions):
+#   kubectl rollout history deployment/payment-api -n payments
+#
+# View specific revision details:
+#   kubectl rollout history deployment/payment-api -n payments --revision=3
+#
+# Rollback to previous version:
+#   kubectl rollout undo deployment/payment-api -n payments
+#
+# Rollback to specific revision:
+#   kubectl rollout undo deployment/payment-api -n payments --to-revision=2
+#
+# Pause rollout (useful for canary: pause after first pod, check metrics):
+#   kubectl rollout pause deployment/payment-api -n payments
+#
+# Resume paused rollout:
+#   kubectl rollout resume deployment/payment-api -n payments
+#
+# Trigger rollout without changing image (e.g., after ConfigMap update):
+#   kubectl rollout restart deployment/payment-api -n payments
+# ===========================================================================

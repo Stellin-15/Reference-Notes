@@ -1,0 +1,530 @@
+# ============================================================
+# L02: GitHub Actions CI/CD Workflow
+# ============================================================
+# WHAT: A complete, production-grade GitHub Actions workflow covering
+#       triggers, matrix builds, caching, secrets, OIDC auth, artifact
+#       management, reusable workflows, and deployment with environments.
+# WHY:  GitHub Actions is the de-facto CI/CD for GitHub-hosted repos.
+#       Its tight integration with GitHub (PRs, OIDC, GHCR, secrets)
+#       makes it the default choice before reaching for Jenkins/CircleCI.
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   GitHub Actions workflow anatomy:
+#     name:        display name in GitHub UI
+#     on:          triggers (what causes the workflow to run)
+#     env:         global environment variables (visible to all jobs)
+#     jobs:        the actual work. Each job runs on a fresh runner VM.
+#       runs-on:   which runner OS to use
+#       needs:     job dependencies (DAG of jobs)
+#       steps:     sequential commands within a job
+#
+#   Key concepts:
+#     Actions (@v4): reusable steps from the Marketplace or your org.
+#     Runner:        the VM that executes jobs (GitHub-hosted or self-hosted).
+#     Context:       objects with metadata — ${{ github.sha }}, ${{ secrets.X }}
+#     Expressions:   ${{ ... }} — evaluated by Actions runtime.
+#     Outputs:       pass data between steps and jobs via $GITHUB_OUTPUT.
+#     Artifacts:     persist files between jobs or for download.
+#     Environments:  staging/production with protection rules and secrets.
+#
+# PRODUCTION USE CASE:
+#   Python web service CI/CD pipeline:
+#     1. PR opened → lint + test matrix (3 Python versions) run in parallel
+#     2. PR merged to main → build Docker image, push to GHCR
+#     3. Image available → deploy to staging (auto), deploy to production (manual approval)
+#     4. OIDC: no long-lived AWS credentials stored in GitHub secrets
+#
+# COMMON MISTAKES:
+#   - Echoing secrets (echo $SECRET → masked but still a habit to break)
+#   - Using ubuntu-latest in production workflows (version changes without notice)
+#     vs using ubuntu-22.04 for reproducibility — tradeoffs explained below.
+#   - No concurrency group — 5 PRs push simultaneously → 5 builds for each PR,
+#     wasting 20 builds when 4 of them are immediately superseded.
+#   - Not caching dependencies — pip install on every run wastes 2-3 minutes.
+#   - Storing long-lived AWS credentials in secrets instead of OIDC.
+#   - Job timeout not set — a hung test suite burns 6 hours of CI minutes.
+#   - Not using needs: — all jobs run in parallel including the deploy job.
+# ============================================================
+
+
+name: CI/CD Pipeline
+
+# ============================================================
+# TRIGGERS (on:)
+# ============================================================
+# Defines WHEN this workflow runs. Multiple triggers are ORed.
+# The `github.event_name` context tells you which trigger fired.
+
+on:
+  push:
+    branches:
+      - main
+        # Run on every push to main (after PR merge).
+        # This is your "post-merge" pipeline: build + push image + deploy staging.
+      - develop
+        # Run on pushes to develop branch (integration branch pattern).
+    # paths-ignore:
+    #   - '**.md'
+    #   - 'docs/**'
+    #   → Skip workflow if ONLY documentation changed. Saves CI minutes.
+    tags:
+      - 'v*.*.*'
+        # Run on version tags (v1.0.0, v2.3.1).
+        # Used to trigger production releases with semantic versioning.
+  pull_request:
+    branches:
+      - main
+        # Run on PRs targeting main.
+        # This is your "pre-merge" pipeline: lint, test, security scan.
+        # PR workflows run in a detached-HEAD merge commit (PR head merged into base).
+    types: [opened, synchronize, reopened]
+      # synchronize: fires when new commits are pushed to the PR branch.
+      # Without this: workflow only runs when PR is created, not updated.
+  workflow_dispatch:
+    # Manual trigger from GitHub UI or via API.
+    # Essential for: hotfix deploys, re-running a failed prod deploy,
+    # emergency rollbacks triggered by an engineer.
+    inputs:
+      environment:
+        description: "Deployment target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options: [staging, production]
+      image_tag:
+        description: "Docker image tag to deploy (leave empty for latest)"
+        required: false
+        type: string
+  schedule:
+    - cron: '0 2 * * 1'
+      # Weekly security scan at 2 AM UTC on Mondays.
+      # Use schedule for: dependency scanning, drift detection,
+      # end-to-end smoke tests against production, certificate expiry checks.
+
+
+# ============================================================
+# GLOBAL ENVIRONMENT VARIABLES
+# ============================================================
+# Visible to all jobs. Good for non-secret config that's repeated.
+# Override at the job or step level with a local `env:` block.
+# NEVER put secrets here (use secrets context: ${{ secrets.X }}).
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+    # Results in: ghcr.io/mycompany/api-server
+    # github.repository is automatically set to "owner/repo"
+  PYTHON_VERSION_DEFAULT: "3.11"
+    # Reference in steps: ${{ env.PYTHON_VERSION_DEFAULT }}
+  POETRY_VERSION: "1.7.1"
+    # Pin tool versions for reproducibility.
+
+
+# ============================================================
+# CONCURRENCY
+# ============================================================
+# Prevents multiple workflow runs for the same PR/branch from
+# running simultaneously. When a new push arrives, cancels the old run.
+#
+# Without this: push 5 commits quickly → 5 CI runs for the same branch.
+# The first 4 are wasted. With concurrency + cancel-in-progress: true,
+# pushing commit 5 cancels runs 1-4 immediately.
+#
+# concurrency.group: a string that identifies the "slot".
+#   All runs with the same group string share one slot.
+#   Use github.ref to scope by branch (PRs each get their own slot).
+#   Use github.workflow + github.ref for full uniqueness.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+    # Cancel running jobs when a newer commit arrives for the same branch.
+    # CAUTION: don't use this for production deploy jobs — you don't want
+    # a half-completed production deploy cancelled. Use cancel-in-progress: false
+    # for deploy jobs, or exclude them from this concurrency group.
+
+
+# ============================================================
+# PERMISSIONS (least-privilege)
+# ============================================================
+# Default permissions are too broad. Explicitly declare what you need.
+# Set the minimal global permissions, then grant extra per-job.
+#
+# Global minimal baseline: read-only for everything.
+# Jobs that push packages or write comments get explicit additions.
+
+permissions:
+  contents: read
+    # Read access to the repository code (checkout).
+    # Add `contents: write` only if a step commits back to the repo.
+  packages: write
+    # Push to GitHub Container Registry (GHCR).
+    # ghcr.io packages are linked to your repo — this permission gates pushes.
+  pull-requests: write
+    # Allow posting PR comments (coverage reports, test summaries).
+  id-token: write
+    # REQUIRED for OIDC (keyless AWS/GCP/Azure authentication).
+    # Without this, the OIDC token cannot be minted.
+  security-events: write
+    # Allow uploading SARIF files to GitHub Security tab (code scanning results).
+
+
+# ============================================================
+# JOBS
+# ============================================================
+
+jobs:
+
+  # ----------------------------------------------------------
+  # JOB 1: Lint
+  # ----------------------------------------------------------
+  lint:
+    name: "Lint & Format Check"
+    runs-on: ubuntu-22.04
+      # ubuntu-22.04: PINNED version. Reproducible — exact OS version is known.
+      # ubuntu-latest: UNPINNED. GitHub updates it periodically.
+      #   Tradeoffs:
+      #     ubuntu-latest: always gets security patches and new tool versions.
+      #                    Risk: a new ubuntu-latest version may break your build.
+      #     ubuntu-22.04:  reproducible, predictable. You control when to upgrade.
+      #   RECOMMENDATION: pin in production CI (ubuntu-22.04), update deliberately.
+    timeout-minutes: 10
+      # If the lint job hangs (edge case), fail it after 10 minutes.
+      # Default: 6 hours. A hung lint job wastes GitHub Actions minutes quota.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+          # actions/checkout@v4: the official checkout action.
+          # By default: shallow clone (fetch-depth: 1) — only the latest commit.
+          # For git history (changelog generation, git blame):
+          #   with: { fetch-depth: 0 }  → full history
+          # For PR branch: checks out the merge commit (PR head merged into base).
+        with:
+          fetch-depth: 1
+            # Shallow clone: fastest possible checkout. Sufficient for lint.
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+          cache: 'pip'
+            # Cache pip packages keyed on requirements files.
+            # actions/setup-python@v5 auto-detects requirements.txt,
+            # setup.py, pyproject.toml and generates the cache key.
+            # Cache HIT → skip pip install → saves 1-3 minutes per run.
+
+      - name: Install linting tools
+        run: pip install ruff==0.3.0 mypy==1.8.0 bandit==1.7.7
+
+      - name: Run Ruff (lint)
+        run: ruff check . --output-format=github
+          # --output-format=github: outputs GitHub-compatible annotations.
+          # Violations appear as inline PR comments on the diff.
+
+      - name: Run Ruff (format check)
+        run: ruff format --check .
+          # Check that code is formatted. Fail if it's not.
+          # `ruff format .` would fix it, but in CI we want to fail to enforce it.
+
+      - name: Run mypy (type check)
+        run: mypy src/ --ignore-missing-imports --strict
+          # Static type checking. --strict enforces full annotation coverage.
+          # Add to pyproject.toml for persistent config instead of CLI flags.
+
+
+  # ----------------------------------------------------------
+  # JOB 2: Test (Matrix — runs in parallel across Python versions)
+  # ----------------------------------------------------------
+  test:
+    name: "Test (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: [lint]
+      # Only run tests if lint passes.
+      # This prevents wasting compute running tests on obviously broken code.
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+          # Creates 3 parallel jobs — one per Python version.
+          # Catch: "works on 3.11 but breaks on 3.12" before users report it.
+      fail-fast: false
+        # false: if Python 3.10 fails, continue running 3.11 and 3.12.
+        # Gives you the full picture of which versions are broken.
+        # true (default): cancel all matrix jobs if one fails.
+        #   Use true when matrix jobs are expensive and you want fast feedback.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+          # Explicit cache control when setup-python's built-in cache isn't enough.
+          # For example: if you install extra tools not in requirements.
+        with:
+          path: |
+            ~/.cache/pip
+            .venv
+              # Cache the virtual environment directory too.
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt', 'pyproject.toml') }}
+            # Cache KEY: invalidated when requirements files change.
+            # hashFiles: generates a hash of the file contents.
+            # If requirements.txt changes → new cache key → fresh pip install.
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+            ${{ runner.os }}-pip-
+              # Fallback keys: used if exact key misses.
+              # restore-keys are tried in order; first match wins.
+              # Even a partial cache hit is faster than a full pip install.
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[test]"
+            # Install package with test extras (pytest, pytest-cov, etc.)
+            # -e: editable install — src/ directory is importable directly.
+
+      - name: Run tests
+        run: |
+          pytest \
+            --tb=short \
+              # tb=short: brief traceback (not full). Keeps CI logs readable.
+            -q \
+              # Quiet: suppress individual test names, show summary.
+            --cov=src \
+              # Coverage measurement on src/ directory.
+            --cov-report=xml:coverage.xml \
+              # XML report for Codecov upload.
+            --cov-report=html:htmlcov \
+              # HTML report for artifact upload.
+            --cov-fail-under=80 \
+              # FAIL the step if coverage drops below 80%.
+              # This enforces a coverage floor at the CI level.
+            --junitxml=test-results.xml
+              # JUnit XML: consumed by test reporting actions.
+        env:
+          # Environment variables for test run (override with test values)
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/testdb"
+          REDIS_URL: "redis://localhost:6379/0"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == env.PYTHON_VERSION_DEFAULT
+          # Only upload coverage once (from the default Python version).
+          # Uploading 3 times creates duplicate coverage reports.
+        with:
+          file: coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+            # false: don't fail CI if Codecov is down. Coverage upload is best-effort.
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+          # always(): upload even if tests failed.
+          # Without this: artifact upload is skipped when tests fail,
+          # and you can't see WHAT failed from the GitHub UI.
+        with:
+          name: test-results-py${{ matrix.python-version }}
+            # Unique artifact name per matrix entry.
+            # Prevents name collision when multiple matrix jobs upload.
+          path: |
+            test-results.xml
+            htmlcov/
+          retention-days: 7
+            # Artifacts expire after 7 days. Don't waste storage for test reports.
+
+    # JOB-LEVEL OUTPUTS: expose data from a job for other jobs to consume.
+    outputs:
+      coverage-pct: ${{ steps.coverage.outputs.percentage }}
+        # Reference from other jobs: ${{ needs.test.outputs.coverage-pct }}
+
+
+  # ----------------------------------------------------------
+  # JOB 3: Build Docker Image
+  # ----------------------------------------------------------
+  build:
+    name: "Build Docker Image"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: [test]
+      # Only build if all test matrix jobs passed.
+    # Only build on main branch or version tags (not PRs)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+        # Expose the computed image tag for use in the publish job.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+          # QEMU: enables building multi-platform images on a x86_64 runner.
+          # Required for: platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+          # Buildx is the CLI plugin for Docker BuildKit.
+          # Enables: multi-platform, layer caching, BuildKit mount caches.
+          # DOCKER_BUILDKIT=1 is implicit with Buildx.
+
+      - name: Generate Docker metadata (tags and labels)
+        id: meta
+        uses: docker/metadata-action@v5
+          # metadata-action computes image tags from git context.
+          # This is the RIGHT way to tag images — no manual git parsing.
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+              # sha-abc1234: always-unique tag from the git commit SHA.
+              # Use this as the canonical "immutable" tag for deployments.
+            type=semver,pattern={{version}}
+              # v1.2.3 tag → image tagged as "1.2.3"
+            type=semver,pattern={{major}}.{{minor}}
+              # v1.2.3 tag → image tagged as "1.2" (rolling minor)
+            type=ref,event=branch
+              # Push to main → image tagged as "main"
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+              # "latest" tag ONLY on main branch pushes. Never on PRs or feature branches.
+              # latest on PRs would overwrite the production "latest" tag accidentally.
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+            # github.actor: the user who triggered the workflow.
+          password: ${{ secrets.GITHUB_TOKEN }}
+            # GITHUB_TOKEN: automatically provided by GitHub, no setup required.
+            # Scoped to this repository. Expires after the workflow run.
+            # Use for: pushing to GHCR (ghcr.io).
+            # Use secrets.DOCKER_PASSWORD for Docker Hub (requires setup).
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+            # Build for both AMD64 (most CI/prod nodes) and ARM64.
+            # ARM64 use cases:
+            #   - AWS Graviton nodes (20-40% cheaper, better perf/watt)
+            #   - Apple M1/M2 developer laptops (docker run without emulation)
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+            # Read BuildKit layer cache from GitHub Actions cache.
+            # On cache hit: unchanged layers are NOT rebuilt (fast).
+          cache-to: type=gha,mode=max
+            # Write ALL layers to cache (mode=max), not just final stage.
+            # mode=max: cache all intermediate stages (useful for multi-stage builds).
+            # mode=min: cache only the final stage.
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+              # Inject metadata into the image as build args.
+              # Use ARG + LABEL in Dockerfile to embed these in image metadata.
+
+
+  # ----------------------------------------------------------
+  # JOB 4: Publish / Deploy (requires manual approval for production)
+  # ----------------------------------------------------------
+  publish:
+    name: "Deploy to ${{ matrix.environment }}"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: [build]
+    strategy:
+      matrix:
+        environment: [staging]
+          # Only staging runs automatically. Production is a separate job
+          # with a manual approval gate (or add production here with
+          # environment protection rules requiring reviewer approval).
+      fail-fast: true
+    environment: ${{ matrix.environment }}
+      # GitHub Environment: links this job to a named environment.
+      # Environments can have:
+      #   - Protection rules: required reviewers (manual approval)
+      #   - Wait timer: delay before deployment starts
+      #   - Environment-specific secrets (DATABASE_URL, AWS credentials)
+      # Configure at: Settings → Environments in the GitHub repo.
+    steps:
+      - uses: actions/checkout@v4
+
+      # OIDC Authentication to AWS (no long-lived credentials in secrets)
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789:role/github-actions-${{ matrix.environment }}
+            # IAM role that GitHub OIDC is trusted to assume.
+            # The role's trust policy must allow sts:AssumeRoleWithWebIdentity
+            # from token.actions.githubusercontent.com, scoped to this repo.
+          aws-region: us-east-1
+          # HOW OIDC WORKS:
+          #   1. GitHub mints a short-lived OIDC JWT token for this workflow run.
+          #   2. The token contains claims: repo, branch, environment, run ID.
+          #   3. aws-actions calls sts:AssumeRoleWithWebIdentity with this token.
+          #   4. AWS IAM verifies the token against GitHub's OIDC provider.
+          #   5. AWS returns short-lived credentials (valid 1 hour).
+          # Result: NO AWS keys stored in GitHub Secrets. Keys rotate per-run.
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-manifest
+            # Download the deployment manifest generated by the build job.
+            # Pattern: build job writes manifest → upload → publish job downloads.
+
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ vars.EKS_CLUSTER_NAME }} \
+            --region us-east-1
+            # vars: repository/environment variables (non-secret config)
+            # secrets: encrypted values. Both visible in Actions context.
+
+          helm upgrade --install api-server ./helm/api-server \
+            --namespace ${{ matrix.environment }} \
+            --values ./helm/api-server/values.yaml \
+            --values ./helm/api-server/values-${{ matrix.environment }}.yaml \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+              # Use the image tag output from the build job.
+              # This is the job output mechanism: build → publish data transfer.
+            --atomic \
+            --timeout 5m \
+            --wait
+
+      - name: Smoke test
+        run: |
+          ENDPOINT=$(kubectl get svc api-server -n ${{ matrix.environment }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          curl --fail --retry 3 --retry-delay 5 "https://${ENDPOINT}/healthz"
+            # Quick smoke test post-deploy. Fail the job if the health check fails.
+            # For deeper smoke testing: call the test job as a reusable workflow.
+
+  # ----------------------------------------------------------
+  # JOB 5: Call a Reusable Workflow for Integration Tests
+  # ----------------------------------------------------------
+  integration-tests:
+    name: "Integration Tests (Reusable)"
+    needs: [publish]
+    # Reusable workflows: defined with `on: workflow_call`.
+    # They live in .github/workflows/ and can be called from any workflow.
+    # Benefits: DRY, versioned (call a specific SHA), separate secrets scope.
+    uses: ./.github/workflows/integration-tests.yml
+      # Local reusable workflow (same repo).
+      # Cross-repo: myorg/shared-workflows/.github/workflows/test.yml@main
+    with:
+      environment: staging
+      api_endpoint: ${{ needs.publish.outputs.endpoint }}
+        # Pass data to the reusable workflow via inputs (non-secret).
+    secrets:
+      api_key: ${{ secrets.STAGING_API_KEY }}
+        # Pass secrets explicitly to the reusable workflow.
+        # Secrets are NOT automatically inherited — must be explicitly passed.
+        # Or use: secrets: inherit (passes ALL secrets — less secure)

@@ -1,0 +1,548 @@
+# ============================================================
+# L06: Kubernetes Autoscaling
+# ============================================================
+# WHAT: The mechanisms Kubernetes provides to automatically scale
+#       workloads (pods) and infrastructure (nodes) in response to
+#       real-time demand signals, resource utilization, and custom metrics.
+# WHY:  Static capacity wastes money during off-peak and causes
+#       outages during traffic spikes. Autoscaling closes the gap
+#       between "enough resources" and "too many resources" automatically.
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   There are three distinct autoscaling layers in Kubernetes:
+#
+#     1. HPA (HorizontalPodAutoscaler)
+#        Scale the NUMBER of pods in a Deployment/StatefulSet.
+#        Best for stateless services (API servers, workers).
+#        Reacts to CPU, memory, or custom metrics.
+#
+#     2. VPA (VerticalPodAutoscaler)
+#        Scale the CPU/memory REQUESTS of individual pods.
+#        Best for workloads with unpredictable resource needs.
+#        Cannot run on same CPU/memory metrics as HPA (conflict).
+#
+#     3. Cluster Autoscaler (CA)
+#        Add or remove NODES when pods are pending or nodes are idle.
+#        Works with cloud ASG/Node Pools to provision real VMs.
+#        Complements HPA: HPA creates pods, CA creates nodes for them.
+#
+#     4. KEDA (Kubernetes Event-Driven Autoscaling)
+#        Extension of HPA. Scales on external signals:
+#        queue depth, Kafka lag, HTTP rate, Prometheus metrics.
+#        Can scale TO ZERO (true zero-cost when idle).
+#
+# PRODUCTION USE CASE:
+#   E-commerce API during Black Friday:
+#     - Normal: 3 replicas, 2 vCPU/4Gi per pod, 5 nodes
+#     - Traffic surge: HPA scales to 20 replicas, CA adds 10 nodes
+#     - Queue backlog: KEDA scales order-processor workers from 0 to 50
+#     - Traffic drops: HPA scales down over 5 minutes (stabilization window)
+#     - Off-peak: KEDA scales workers to 0, CA removes idle nodes
+#
+# COMMON MISTAKES:
+#   - Setting CPU limit = CPU request (Guaranteed QoS) and then
+#     using HPA on CPU — HPA can never detect overload because
+#     the pod is throttled AT the request, not above it.
+#   - Combining VPA (Auto mode) + HPA on CPU/memory — they fight:
+#     VPA evicts and resizes pods, HPA immediately rescales count.
+#     Solution: use VPA for initial sizing, HPA for scaling count.
+#   - No PodDisruptionBudget — Cluster Autoscaler drains nodes and
+#     kills all pods simultaneously causing outage.
+#   - HPA min replicas = 1 in production — single point of failure
+#     during rolling updates and node drains.
+#   - Stabilization window too short — pods scale up and down every
+#     few minutes (thrashing), causing unnecessary churn and cost.
+# ============================================================
+
+
+# ============================================================
+# SECTION 1: Metrics Server
+# ============================================================
+# HPA requires a metrics pipeline. The default metrics server
+# provides CPU and memory via the Kubernetes Metrics API.
+#
+# Installation (Helm):
+#   helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+#   helm install metrics-server metrics-server/metrics-server \
+#     --namespace kube-system \
+#     --set args={--kubelet-insecure-tls}   # only for dev clusters
+#
+# Verify it's working:
+#   kubectl top pods -n default
+#   kubectl top nodes
+#
+# For custom metrics (Prometheus queries in HPA):
+#   Install prometheus-adapter:
+#   helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#     --namespace monitoring
+#
+# The custom metrics pipeline:
+#   App exposes /metrics → Prometheus scrapes → prometheus-adapter
+#   exposes as custom.metrics.k8s.io API → HPA reads it
+
+
+# ============================================================
+# SECTION 2: HorizontalPodAutoscaler
+# ============================================================
+# HPA controller runs in the kube-controller-manager and polls
+# metrics every 15 seconds (configurable via --horizontal-pod-autoscaler-sync-period).
+#
+# Scale-up algorithm:
+#   desiredReplicas = ceil(currentReplicas * (currentMetric / desiredMetric))
+#   Example: 4 pods at 80% CPU, target 50% → ceil(4 * 80/50) = ceil(6.4) = 7 pods
+#
+# Scale-down is more conservative (stabilizationWindowSeconds prevents thrashing).
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-server-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+      # The deployment this HPA controls.
+      # HPA reads the deployment's current replica count and
+      # patches it to scale up/down.
+  minReplicas: 3
+    # NEVER set this to 1 in production.
+    # During a rolling update, 1 pod means a potential gap in service.
+    # minReplicas should satisfy your availability SLA at minimum load.
+  maxReplicas: 50
+    # Hard ceiling. Prevents runaway scaling from a metric bug or attack.
+    # Should be bounded by your cluster's total node capacity
+    # (or rely on Cluster Autoscaler to add nodes for large maxReplicas).
+  metrics:
+    # --- Metric 1: CPU Utilization ---
+    # Scale based on CPU usage relative to the pod's CPU REQUEST.
+    # targetAverageUtilization: 60 means "scale so average CPU = 60% of request".
+    # If request = 500m, scale when average usage = 300m.
+    # TIP: use 60-70% not 80%+ — by 80% you're already in trouble,
+    # and scaling takes 30-60 seconds to propagate.
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    # --- Metric 2: Memory ---
+    # Memory scaling is less common because:
+    #   1. Memory doesn't get "used" proportionally to request rate
+    #   2. JVM/Python processes don't release memory eagerly
+    # Use AverageValue (absolute) not Utilization for memory.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: AverageValue
+          averageValue: 3Gi
+            # Scale when average pod memory exceeds 3Gi.
+            # Set this near your p95 memory usage from prod metrics.
+    # --- Metric 3: Custom Metric (HTTP requests per second) ---
+    # Requires prometheus-adapter to be installed and configured.
+    # This metric name (http_requests_per_second) must be configured
+    # in prometheus-adapter's config to map to a Prometheus query.
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "1000"
+            # Scale when average RPS per pod exceeds 1000.
+            # This is the most useful scaling metric for web APIs.
+  behavior:
+    # behavior block: control the RATE of scaling, not just the target.
+    # This prevents flapping (scale up/down repeatedly) and cost spikes.
+    scaleUp:
+      stabilizationWindowSeconds: 60
+        # Wait 60 seconds before scaling up again after the last scale event.
+        # This prevents scaling in response to a 10-second CPU spike.
+        # Shorter window = more responsive but more expensive.
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+            # Add at most 4 pods per 60 seconds.
+            # Prevents "scale from 3 to 50 in one second" during traffic burst.
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+            # OR add at most 50% of current replicas per 60 seconds.
+            # HPA uses whichever policy allows MORE scaling (selectPolicy: Max default).
+      selectPolicy: Max
+        # Max: use the policy that allows the most pods (more aggressive scale-up)
+        # Min: use the policy that allows fewest pods (conservative)
+        # Disabled: don't scale in this direction
+    scaleDown:
+      stabilizationWindowSeconds: 300
+        # Wait 5 minutes before scaling down. This is the "cooldown".
+        # During this window, HPA tracks the MAXIMUM desired replicas
+        # and only scales down to that. Prevents: traffic spike → scale up
+        # → immediately scale down before new pods are warmed up.
+        # 5 minutes is a good default for web APIs.
+        # For batch workers processing long jobs, use 600-900 seconds.
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+            # Remove at most 2 pods per 60 seconds.
+            # Gradual scale-down gives time to drain connections.
+
+
+---
+# ============================================================
+# SECTION 3: VerticalPodAutoscaler (VPA)
+# ============================================================
+# VPA analyzes historical resource usage and recommends (or sets)
+# CPU/memory requests for pods.
+#
+# Installation:
+#   git clone https://github.com/kubernetes/autoscaler
+#   kubectl apply -f autoscaler/vertical-pod-autoscaler/deploy/
+#
+# VPA modes:
+#   Off:     Only generate recommendations (view with kubectl describe vpa)
+#            → READ ONLY. Safe to run in production for right-sizing insight.
+#   Initial: Apply recommendations only when a pod is FIRST created.
+#            Existing pods are not affected.
+#   Auto:    Evict and recreate pods to apply new recommendations.
+#            → DISRUPTIVE. Only use with PDB and replicas >= 3.
+#   Recreate: Like Auto but always recreates (rarely used directly)
+#
+# CRITICAL RULE: Never use VPA Auto mode with HPA on CPU or memory.
+#   They fight each other:
+#   - VPA sees high CPU, evicts pod to give it more CPU request
+#   - HPA sees high CPU, adds more pods
+#   - VPA then changes request on all pods, triggers another HPA cycle
+#   Solution: use VPA (Off or Initial) for sizing, HPA for scaling count.
+#   Or: use VPA on CPU+memory, HPA on CUSTOM metrics (RPS, queue depth).
+
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: api-server-vpa
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+  updatePolicy:
+    updateMode: "Off"
+      # Start with Off in production to collect recommendations safely.
+      # After 7+ days of traffic, check recommendations:
+      #   kubectl describe vpa api-server-vpa -n production
+      # Apply them manually to your deployment manifest.
+      # Then consider switching to "Initial" mode.
+  resourcePolicy:
+    containerPolicies:
+      - containerName: api-server
+        minAllowed:
+          cpu: 100m
+          memory: 256Mi
+            # VPA will never recommend LESS than this.
+            # Prevents over-shrinking during off-peak.
+        maxAllowed:
+          cpu: "4"
+          memory: 8Gi
+            # VPA will never recommend MORE than this.
+            # Guards against VPA recommending unreasonable amounts.
+        controlledResources: [cpu, memory]
+          # VPA will tune both CPU and memory.
+          # You can restrict to just [memory] if HPA handles CPU scaling.
+
+
+---
+# ============================================================
+# SECTION 4: PodDisruptionBudget (PDB)
+# ============================================================
+# PDB defines how many pods of a group can be UNAVAILABLE at once
+# during voluntary disruptions (node drain, cluster upgrade, CA scale-down).
+#
+# Voluntary disruptions (PDB applies):
+#   - kubectl drain node
+#   - Cluster Autoscaler removing an underutilized node
+#   - Node upgrade rolling out
+#   - kubectl delete pod (if done intentionally)
+#
+# Involuntary disruptions (PDB does NOT help):
+#   - Node hardware failure
+#   - OOM kill
+#   - kubelet crash
+#
+# PDB prevents Cluster Autoscaler from removing a node if doing so
+# would violate the PDB. This is why PDB is REQUIRED for production
+# workloads — without it, CA can drain a node, killing 50% of your pods.
+#
+# minAvailable: how many pods must ALWAYS be available
+# maxUnavailable: how many pods can be down at once (alternative to minAvailable)
+# Use ONE of these, not both.
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-server-pdb
+  namespace: production
+spec:
+  minAvailable: 2
+    # At least 2 pods must be running at all times.
+    # With 3 replicas: only 1 pod can be disrupted at a time.
+    # With 10 replicas: only 8 can be down at once (2 stay up).
+    #
+    # CHOOSING minAvailable vs maxUnavailable:
+    #   minAvailable: "I need at least N healthy pods" — good for critical services
+    #   maxUnavailable: "I can tolerate X% disruption" — good for batch workers
+    #   Example for 5 replicas: minAvailable: "60%" = 3 must stay up
+  selector:
+    matchLabels:
+      app: api-server
+        # Must match the pod labels from your Deployment.
+
+
+---
+# ============================================================
+# SECTION 5: KEDA — Kubernetes Event-Driven Autoscaling
+# ============================================================
+# KEDA extends HPA to support external metric sources.
+# KEDA can scale TO ZERO (HPA minimum is 1).
+#
+# Installation:
+#   helm repo add kedacore https://kedacore.github.io/charts
+#   helm install keda kedacore/keda --namespace keda --create-namespace
+#
+# How it works:
+#   1. You create a ScaledObject pointing to a Deployment
+#   2. KEDA creates an HPA under the hood with external metrics
+#   3. KEDA's metric adapter polls the external source (SQS, Kafka, etc.)
+#   4. HPA scales based on KEDA's metric values
+#
+# Supported scalers (partial list):
+#   - AWS SQS: scale on queue depth
+#   - Apache Kafka: scale on consumer group lag
+#   - RabbitMQ: scale on queue message count
+#   - Redis: scale on list length
+#   - Prometheus: scale on any PromQL query result
+#   - HTTP: scale on in-flight requests (with HTTP Add-on)
+#   - Azure Service Bus, GCP Pub/Sub, and 50+ more
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-processor-scaledobject
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-processor
+      # The deployment that processes messages from Kafka.
+  pollingInterval: 15
+    # How often KEDA checks the metric source (seconds).
+    # Shorter = more responsive scaling, more API calls to Kafka/SQS.
+  cooldownPeriod: 300
+    # Seconds to wait after last event before scaling to zero.
+    # 300 seconds = wait 5 minutes of silence before shutting down workers.
+  idleReplicaCount: 0
+    # Scale to zero when no messages are present.
+    # This is KEDA's killer feature — true zero cost when idle.
+    # Note: cold start latency when first message arrives.
+    # For latency-sensitive: set minReplicaCount: 1 instead.
+  minReplicaCount: 0
+    # Minimum non-zero replicas when active (0 = scale to zero allowed).
+  maxReplicaCount: 30
+    # Maximum workers to create regardless of lag.
+  triggers:
+    # --- Trigger 1: Kafka consumer lag ---
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka-headless.kafka.svc.cluster.local:9092
+        consumerGroup: order-processor-group
+          # KEDA checks the lag of THIS consumer group on the topic.
+        topic: orders
+        lagThreshold: "100"
+          # Target: each worker handles lag of 100 messages.
+          # Lag = 1000 → scale to 10 workers.
+          # Lag = 0 → scale to 0 workers (after cooldown).
+        offsetResetPolicy: latest
+          # Where new consumer groups start reading: latest or earliest.
+    # --- Trigger 2: Prometheus metric (custom threshold) ---
+    # - type: prometheus
+    #   metadata:
+    #     serverAddress: http://prometheus.monitoring.svc.cluster.local:9090
+    #     metricName: order_processing_queue_depth
+    #     threshold: "50"
+    #     query: sum(order_queue_depth{env="production"})
+
+
+---
+# ============================================================
+# SECTION 6: QoS Classes and Resource Best Practices
+# ============================================================
+# Kubernetes assigns a Quality of Service class to each pod
+# based on its resource requests and limits. QoS determines
+# eviction priority when a node is under memory pressure.
+#
+# QoS Classes (eviction order — evicted first to last):
+#
+# 1. BestEffort (evicted FIRST)
+#    - No resource requests OR limits set on ANY container
+#    - Pod gets whatever is available
+#    - Killed first when node needs memory
+#    - NEVER use for production workloads
+#
+# 2. Burstable (evicted SECOND)
+#    - At least one container has a request OR limit (but not equal)
+#    - Pod can use up to its limit, guaranteed at least its request
+#    - RECOMMENDED for most production workloads
+#    - Set request = actual usage (p50), limit = 2-3x request
+#
+# 3. Guaranteed (evicted LAST / never for memory)
+#    - ALL containers have request == limit for BOTH cpu and memory
+#    - Pod gets exactly what it asks for, no more
+#    - Use for databases, latency-critical services
+#    - Drawback: you can't burst — pod is throttled at the limit
+#
+# Resource Setting Strategy:
+#   1. Deploy with no limits for 1 week in staging
+#   2. Observe actual usage with kubectl top pods / Prometheus
+#   3. Set request = p75 of actual usage
+#   4. Set limit = p99 of actual usage OR 2x request (whichever larger)
+#   5. Run VPA in Off mode to validate your settings
+#
+# Example: Well-configured API pod
+# resources:
+#   requests:
+#     cpu: 500m      # Scheduling guarantee: 0.5 vCPU
+#     memory: 512Mi  # Scheduling guarantee: 512MB
+#   limits:
+#     cpu: "2"       # Burst ceiling: 2 vCPU (throttled above this)
+#     memory: 1Gi    # OOM kill ceiling: never exceed 1GB
+#
+# NOTE: CPU limits cause THROTTLING (slow), not killing.
+#       Memory limits cause OOM KILL (immediate death).
+#       Therefore: be more conservative with memory limits.
+#       If you see many OOMKilled pods, raise memory limit.
+
+
+# ============================================================
+# SECTION 7: Full Production Example — Web API with HPA + PDB
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: production
+  labels:
+    app: api-server
+    version: v2
+spec:
+  replicas: 3
+    # Initial replica count. HPA will override this.
+    # Keep this in sync with HPA minReplicas to avoid drift.
+  selector:
+    matchLabels:
+      app: api-server
+  template:
+    metadata:
+      labels:
+        app: api-server
+        version: v2
+      annotations:
+        # Prometheus scraping annotations — required for ServiceMonitor
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: api-server
+          image: mycompany/api-server:v2.1.0
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 500m
+                # Scheduling guarantee. Pod needs 0.5 vCPU to run.
+                # HPA CPU utilization is calculated against THIS value.
+                # With 60% target: trigger scale when usage > 300m.
+              memory: 512Mi
+                # Memory requests affect pod scheduling decisions.
+                # Nodes must have this much allocatable memory.
+            limits:
+              cpu: "2"
+                # CPU throttle ceiling. Pod can burst to 2 vCPU.
+                # If a node has spare cycles, this pod can use them.
+              memory: 1Gi
+                # OOM kill ceiling. Never let this pod use > 1Gi.
+                # Set to 2x memory request for Burstable QoS.
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+              # Pod is REMOVED from Service endpoints if this fails.
+              # HPA should not count unready pods as available.
+              # During scale-up, new pods must pass readiness before
+              # traffic is sent to them.
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+              # Pod is RESTARTED if this fails.
+              # Set initialDelaySeconds high enough for app to boot.
+
+
+# ============================================================
+# SECTION 8: Cluster Autoscaler Notes (comment — no YAML manifest needed)
+# ============================================================
+# Cluster Autoscaler (CA) manages the NUMBER OF NODES in your cluster.
+# It is cloud-provider-specific and typically deployed as a Deployment
+# in kube-system, with IRSA/Workload Identity permissions to call
+# the cloud ASG/Node Pool APIs.
+#
+# Scale-UP trigger:
+#   A pod enters Pending state because no node has enough capacity.
+#   CA finds a node group that COULD fit the pod and adds a node.
+#   New node joins cluster, kubelet starts, pod is scheduled.
+#   Typical time: 2-4 minutes (node boot + kubelet registration).
+#
+# Scale-DOWN trigger:
+#   A node has been underutilized for 10 minutes (--scale-down-delay-after-add).
+#   All pods on that node can be rescheduled on other nodes.
+#   No PDB violations would occur.
+#   CA cordons the node, evicts pods (respecting PDBs), terminates it.
+#
+# AWS EKS Installation:
+#   helm repo add autoscaler https://kubernetes.github.io/autoscaler
+#   helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+#     --namespace kube-system \
+#     --set autoDiscovery.clusterName=my-cluster \
+#     --set awsRegion=us-east-1 \
+#     --set rbac.serviceAccount.annotations."eks.amazonaws.com/role-arn"=arn:aws:iam::123:role/ca-role
+#
+# Node group tagging (required for auto-discovery):
+#   Tag your ASG with:
+#     k8s.io/cluster-autoscaler/enabled = "true"
+#     k8s.io/cluster-autoscaler/<cluster-name> = "owned"
+#
+# Key flags:
+#   --scale-down-utilization-threshold=0.5    # Remove nodes below 50% utilization
+#   --scale-down-delay-after-add=10m          # Wait 10m after adding before removing
+#   --skip-nodes-with-local-storage=false     # Allow draining nodes with emptyDir
+#   --expander=least-waste                    # Pick node group that wastes least CPU/mem
+#
+# Shell: view CA logs
+#   kubectl logs -n kube-system -l app.kubernetes.io/name=cluster-autoscaler -f
+#
+# Shell: check CA activity
+#   kubectl get events --sort-by=.lastTimestamp -n kube-system | grep -i autoscal

@@ -1,0 +1,636 @@
+# =============================================================================
+# WHAT: Kubernetes Services, Ingress, NetworkPolicy — Traffic Routing Reference
+# WHY:  Services are how pods talk to each other. Ingress is how external
+#       traffic enters the cluster. Getting this wrong means broken DNS,
+#       traffic not reaching pods, or security gaps. Daily architect concern.
+# LEVEL: Senior / Architect
+# =============================================================================
+
+# =============================================================================
+# CONCEPT OVERVIEW
+# =============================================================================
+# PROBLEM: Pods are ephemeral. IPs change constantly (pod dies, gets rescheduled,
+# scaled up/down). No client can reliably connect to a hardcoded pod IP.
+#
+# SOLUTION: Service = a stable virtual IP (ClusterIP) that load-balances to
+# a dynamic set of pods selected by label.
+#
+# Service types (external accessibility progression):
+#   ClusterIP → NodePort → LoadBalancer
+#   Internal only    Dev/testing    Production (cloud only)
+#
+# For HTTP/HTTPS production traffic:
+#   Use ONE LoadBalancer → Ingress Controller → multiple Services
+#   (Not one LoadBalancer per service — that's expensive and hard to manage)
+#
+# DNS resolution (kube-dns / CoreDNS):
+#   From SAME namespace:          myservice
+#   From DIFFERENT namespace:     myservice.mynamespace
+#   Full FQDN (always works):     myservice.mynamespace.svc.cluster.local
+#   The ".svc.cluster.local" suffix is the cluster domain — configured in CoreDNS.
+# =============================================================================
+
+# =============================================================================
+# PRODUCTION USE CASE
+# =============================================================================
+# SaaS application architecture:
+#   - Frontend (React) at app.company.com
+#   - REST API at app.company.com/api
+#   - Admin panel at admin.company.com
+#   - All behind one Ingress with TLS, rate limiting, auth
+#   - Services for each component (ClusterIP — internal only)
+#   - NetworkPolicy: only ingress controller can reach app pods
+# =============================================================================
+
+# =============================================================================
+# COMMON MISTAKES
+# =============================================================================
+# 1. Port confusion: targetPort is the CONTAINER port (what the app listens on).
+#    port is the SERVICE port (what clients connect to). They can differ.
+#    Example: Service port 80 → targetPort 8080 (app listens on 8080 not 80).
+# 2. Selector not matching pod labels → Service has no endpoints → 503 errors.
+#    Debug: kubectl get endpoints <service-name>. Empty = selector mismatch.
+# 3. NodePort in production: exposes cluster on every node's IP, bypasses Ingress.
+#    Security risk. Use only for dev or external LBs that don't support K8s.
+# 4. One LoadBalancer Service per microservice: expensive, unmanageable at scale.
+#    Use Ingress for HTTP/HTTPS. LoadBalancer only for non-HTTP protocols.
+# 5. Missing Ingress Controller: Ingress resource is just config — it does nothing
+#    without a controller (nginx, traefik, AWS ALB) actually running in the cluster.
+# 6. Not specifying ingressClassName when multiple controllers exist in same cluster.
+# 7. Hardcoding pod IPs instead of using service DNS. Pod IP changes on restart.
+# =============================================================================
+
+---
+# ===========================================================================
+# TYPE 1: CLUSTERIP SERVICE (default)
+# Virtual IP reachable only INSIDE the cluster.
+# Most common type — use for all service-to-service communication.
+# kube-proxy creates iptables/IPVS rules to load-balance to pods.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: payments
+  labels:
+    app: payment-api
+  annotations:
+    # Prometheus ServiceMonitor uses this annotation for scraping.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  # type: ClusterIP is the DEFAULT — can omit type entirely.
+  # Include it explicitly for clarity (self-documenting config).
+  type: ClusterIP
+
+  # SELECTOR: K8s continuously watches pods matching these labels.
+  # Pod added with matching labels? Added to Service endpoints.
+  # Pod deleted or labels changed? Removed from endpoints.
+  # This is how zero-downtime rollouts work: readinessProbe controls
+  # when a pod is added to endpoints.
+  selector:
+    app: payment-api               # Must match pod labels exactly.
+
+  ports:
+    # PORT: what clients connect to (the "Service port").
+    # TARGETPORT: what the container listens on.
+    # They're often the same, but decoupling allows renaming container ports
+    # without changing how clients connect.
+    - name: http                   # Name required for multi-port services.
+      port: 80                     # Clients connect to payment-api:80
+      targetPort: http             # Forwards to container's named port "http" (8080)
+      protocol: TCP
+
+    - name: metrics
+      port: 9090
+      targetPort: metrics          # Container's named port "metrics" (also 9090)
+      protocol: TCP
+
+  # SESSION AFFINITY: how to route requests from same client.
+  # None (default): round-robin load balancing. Stateless apps.
+  # ClientIP: same client IP always goes to same pod. Sticky sessions.
+  #   Caveat: only works for direct clients. Behind another LB, all requests
+  #   may have the same source IP (the LB's IP). Use app-layer sessions instead.
+  sessionAffinity: None
+
+---
+# ===========================================================================
+# TYPE 2: NODEPORT SERVICE
+# Opens a port on EVERY node in the cluster (range 30000-32767).
+# External traffic: any-node-IP:nodePort → Service → Pod
+#
+# When to use:
+#   - Local development with minikube/kind (no cloud LB available)
+#   - External hardware LB that can't use K8s-native LB provisioning
+#   - Debugging (access service from outside cluster without Ingress)
+#
+# When NOT to use:
+#   - Production HTTP traffic (use Ingress)
+#   - Security-sensitive services (opens port on every node including control plane)
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api-nodeport
+  namespace: payments
+  labels:
+    app: payment-api
+spec:
+  type: NodePort
+  selector:
+    app: payment-api
+  ports:
+    - name: http
+      port: 80                     # ClusterIP port (internal)
+      targetPort: http             # Container port
+      nodePort: 30080              # External port on every node.
+                                   # If omitted, K8s assigns a random port in 30000-32767.
+                                   # Assign explicitly to keep it stable.
+
+---
+# ===========================================================================
+# TYPE 3: LOADBALANCER SERVICE
+# Provisions a cloud load balancer (AWS ALB/NLB, GCP LB, Azure LB).
+# Gets an external IP that routes to the Service.
+#
+# When to use:
+#   - Non-HTTP protocols (TCP/UDP) that can't go through Ingress.
+#     Example: Kafka (TCP 9092), databases, game servers, gRPC without HTTP/2 termination.
+#   - Simple HTTP if you only have one external service and cost is not a concern.
+#
+# When NOT to use:
+#   - You have multiple HTTP services (use one Ingress instead).
+#   - Cost is a concern (each LoadBalancer = a cloud LB = $$$).
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  namespace: infrastructure
+  annotations:
+    # AWS-specific annotations for NLB (Network Load Balancer) instead of CLB.
+    # NLB: TCP, low latency, preserves client IP. CLB: legacy, avoid.
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # Enable cross-zone load balancing (distribute across AZs).
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # Static EIP for the LB (useful for IP allowlisting by clients).
+    # service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-xxxx"
+spec:
+  type: LoadBalancer
+  selector:
+    app: kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+  # loadBalancerSourceRanges: restrict external access to specific IP ranges.
+  # Acts as a firewall rule on the cloud LB.
+  # Default: 0.0.0.0/0 (open to internet — dangerous for production).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"               # Internal corporate network only.
+    - "203.0.113.0/24"           # Partner network CIDR.
+
+---
+# ===========================================================================
+# TYPE 4: EXTERNALNAME SERVICE
+# DNS alias (CNAME) to an external hostname. No proxy, no port forwarding.
+# K8s DNS returns a CNAME record pointing to externalName.
+#
+# Use case: Gradual migration from external DB to internal.
+# 1. App connects to postgres.payments.svc.cluster.local (ExternalName pointing to RDS)
+# 2. When ready: change ExternalName to point to internal postgres Service
+# 3. App config doesn't change — just the Service definition
+#
+# Caveat: SNI issues with TLS — the client sends the ExternalName hostname
+# in SNI, not the CNAME target. Check with target service if this matters.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-external
+  namespace: payments
+spec:
+  type: ExternalName
+  externalName: payments-db.abc123xyz.us-east-1.rds.amazonaws.com
+  # No selector needed — ExternalName just creates a DNS alias.
+
+---
+# ===========================================================================
+# TYPE 5: HEADLESS SERVICE (clusterIP: None)
+# Returns Pod IPs directly via DNS instead of a virtual ClusterIP.
+# DNS query returns A records for EACH pod, not a single virtual IP.
+#
+# When to use:
+#   - StatefulSets: each pod needs a stable DNS name.
+#     kafka-0.kafka-headless.namespace.svc.cluster.local
+#     kafka-1.kafka-headless.namespace.svc.cluster.local
+#   - Client-side load balancing: gRPC, DB drivers that handle connection pooling.
+#   - Service discovery where client needs to know all instances.
+#
+# DNS resolution for StatefulSets:
+#   <pod-name>.<headless-service>.<namespace>.svc.cluster.local → pod IP
+#   This is how Kafka brokers find each other by hostname.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: infrastructure
+  labels:
+    app: kafka
+spec:
+  clusterIP: None                  # This is what makes it "headless".
+  selector:
+    app: kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
+  # publishNotReadyAddresses: include pods not yet passing readinessProbe.
+  # Required for StatefulSet bootstrap — pods need to discover each other
+  # before they're fully ready (Kafka needs to form quorum on first start).
+  publishNotReadyAddresses: true
+
+---
+# ===========================================================================
+# INGRESS: HTTP/HTTPS routing from external → internal Services
+# ===========================================================================
+# Ingress is just configuration. Nothing happens without an Ingress Controller.
+# Popular Ingress Controllers:
+#   nginx-ingress: most common, rich annotation-based config, battle-tested.
+#   Traefik: auto-discovery, built-in Let's Encrypt, good for small clusters.
+#   AWS ALB Ingress Controller: provisions AWS ALBs natively. WAF integration.
+#   Kong: API gateway features (rate limiting, auth, transforms) built-in.
+#   Istio Gateway: if already using service mesh.
+#
+# INSTALL nginx-ingress (one-time cluster setup, not part of app deployment):
+#   helm upgrade --install ingress-nginx ingress-nginx \
+#     --repo https://kubernetes.github.io/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace
+
+---
+# IngressClass: tells K8s which controller handles which Ingress resources.
+# Required when multiple controllers are installed (e.g., nginx for apps, ALB for API gateway).
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx
+  annotations:
+    # Mark as default: Ingress resources without ingressClassName use this controller.
+    ingressclass.kubernetes.io/is-default-class: "true"
+spec:
+  controller: k8s.io/ingress-nginx
+
+---
+# ===========================================================================
+# MAIN INGRESS: Complete SaaS routing configuration
+# Routes:
+#   app.company.com/        → frontend Service
+#   app.company.com/api/    → payment-api Service
+#   admin.company.com/      → admin-panel Service
+#
+# Features: TLS termination, rate limiting, CORS, authentication
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: main-ingress
+  namespace: payments
+
+  annotations:
+    # Which Ingress Controller handles this (alternative to spec.ingressClassName).
+    # Using spec.ingressClassName is preferred (explicit, type-safe).
+    # kubernetes.io/ingress.class: nginx
+
+    # ---- RATE LIMITING ----
+    # Limit by client IP. Protects against scraping, brute force, DDoS.
+    # These are nginx-specific annotations. Different controllers have different syntax.
+    nginx.ingress.kubernetes.io/limit-rps: "50"           # 50 requests/sec per IP
+    nginx.ingress.kubernetes.io/limit-connections: "20"   # Max 20 concurrent connections per IP
+
+    # ---- TIMEOUTS ----
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"       # 10s to establish connection to backend
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"          # 60s for sending request to backend
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"          # 60s for reading response from backend
+
+    # ---- BODY SIZE ----
+    # Default nginx limit is 1MB. Increase for file upload endpoints.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # ---- CORS (Cross-Origin Resource Sharing) ----
+    # Enable CORS headers for browser-to-API requests from different origins.
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.company.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type, X-Request-ID"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-max-age: "3600"
+
+    # ---- SSL/TLS ----
+    # Force redirect HTTP → HTTPS. Never serve API over HTTP in production.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ---- AUTHENTICATION (optional, using external auth service) ----
+    # Delegate auth to an external service (OAuth2 proxy, Keycloak, Okta).
+    # Every request is first sent to auth-service for validation.
+    # nginx.ingress.kubernetes.io/auth-url: "https://oauth.company.com/validate"
+    # nginx.ingress.kubernetes.io/auth-signin: "https://oauth.company.com/start"
+
+    # ---- REQUEST HEADERS ----
+    # Inject headers before forwarding to backend services.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+
+    # ---- PATH REWRITING ----
+    # Strip the /api prefix before forwarding to backend.
+    # Request: /api/v1/payments → forwarded to payment-api as /v1/payments
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+
+spec:
+  # ingressClassName: which IngressClass (controller) handles this Ingress.
+  # Must match an IngressClass resource in the cluster.
+  # If omitted and a default IngressClass exists, that default is used.
+  ingressClassName: nginx
+
+  # TLS CONFIGURATION
+  # Each entry: hosts + secretName for those hosts.
+  # Secret must be type: kubernetes.io/tls with tls.crt and tls.key.
+  # cert-manager can provision and renew these automatically (see below).
+  tls:
+    - hosts:
+        - app.company.com
+      secretName: app-company-com-tls    # cert-manager will create this Secret.
+    - hosts:
+        - admin.company.com
+      secretName: admin-company-com-tls
+
+  rules:
+    # ---- HOST-BASED ROUTING: app.company.com ----
+    - host: app.company.com
+      http:
+        paths:
+          # PATH TYPES:
+          #   Exact: matches exact path only. /api ≠ /api/v1
+          #   Prefix: matches path and all sub-paths. /api → /api, /api/v1, /api/v1/users
+          #   ImplementationSpecific: controller-defined behavior. Usually like Prefix.
+          #   Use Exact for most specific routes, Prefix for hierarchical routing.
+
+          # API paths: forward to payment-api service.
+          # (/api)(.*) capture group 2 = $2 in rewrite-target above.
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: payment-api
+                port:
+                  name: http             # Reference by port name (not number). Safer.
+
+          # Frontend: catch-all (must be LAST — most specific rules first).
+          # Serves the React SPA. Let the frontend router handle unknown paths.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http
+
+    # ---- HOST-BASED ROUTING: admin.company.com ----
+    # Different hostname → different service. Both share the same Ingress Controller
+    # and the same external IP. Much cheaper than two LoadBalancer services.
+    - host: admin.company.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-panel
+                port:
+                  name: http
+
+---
+# ===========================================================================
+# CERT-MANAGER: Automatic TLS Certificate Provisioning
+# Install cert-manager once per cluster (cluster-level resource):
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#
+# ClusterIssuer: cluster-wide certificate authority configuration.
+# Issuer: namespace-scoped version (if you want per-team CA configs).
+# ===========================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  # ClusterIssuer is cluster-scoped (no namespace).
+spec:
+  acme:
+    # Let's Encrypt production API. Rate limited: 5 certs per domain per week.
+    # Use staging (acme-staging-v02.api.letsencrypt.org) for testing.
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: devops@company.com      # Let's Encrypt sends expiry warnings here.
+    privateKeySecretRef:
+      name: letsencrypt-prod-key   # Secret to store ACME account private key.
+    solvers:
+      # HTTP-01 challenge: Let's Encrypt verifies domain ownership by reaching
+      # /.well-known/acme-challenge/<token> on port 80 on your domain.
+      # Works if Ingress Controller is publicly reachable.
+      - http01:
+          ingress:
+            class: nginx
+      # DNS-01 challenge: verify ownership by creating a TXT DNS record.
+      # Use when port 80 is blocked or for wildcard certs (*.company.com).
+      # Requires DNS provider API access.
+      # - dns01:
+      #     route53:
+      #       region: us-east-1
+      #       hostedZoneID: ZXXXXX
+
+---
+# Certificate: instruct cert-manager to obtain and maintain a certificate.
+# cert-manager watches this resource, obtains cert from ClusterIssuer,
+# and stores it in the secretName Secret. Renews automatically before expiry.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-company-com-cert
+  namespace: payments
+spec:
+  secretName: app-company-com-tls        # Name of Secret to create/update.
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: app.company.com
+  dnsNames:
+    - app.company.com
+    - www.app.company.com               # Include additional subdomains as needed.
+  # Duration and renewal:
+  duration: 2160h                        # 90 days (Let's Encrypt maximum).
+  renewBefore: 360h                      # Renew 15 days before expiry.
+
+---
+# ===========================================================================
+# NETWORK POLICY: Firewall rules for pod-to-pod traffic
+# ===========================================================================
+# By default: ALL traffic is allowed between pods in a cluster. Open network.
+# NetworkPolicy: restrict which pods can talk to which.
+# Requires a CNI plugin that enforces NetworkPolicy (Calico, Cilium, Weave).
+# Flannel and kubenet do NOT enforce NetworkPolicy (policies are no-ops).
+#
+# Strategy: implement default-deny, then add explicit allow rules.
+# This is defense-in-depth — even if one pod is compromised, it can't
+# reach databases, internal APIs, or other pods it shouldn't talk to.
+#
+# CRITICAL: NetworkPolicy is ADDITIVE. Multiple policies on same pod = OR logic.
+# Adding one NetworkPolicy to a pod enables enforcement for that pod.
+# A pod with NO NetworkPolicy: all traffic allowed (no enforcement).
+# A pod with ONE NetworkPolicy: only traffic matching that policy allowed.
+
+---
+# DEFAULT-DENY INGRESS: Block all inbound traffic to pods in "payments" namespace.
+# Then add explicit allow rules for what's needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: payments
+spec:
+  podSelector: {}                  # Empty = select ALL pods in namespace.
+  policyTypes:
+    - Ingress                      # This policy applies to incoming traffic.
+    # - Egress                     # Uncomment to also default-deny egress.
+
+---
+# ALLOW INGRESS FROM INGRESS CONTROLLER ONLY
+# payment-api pods should only receive traffic from the nginx Ingress Controller.
+# Not from other pods, not from the node, not from the internet directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: payments
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-api             # This policy applies to payment-api pods.
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Allow from pods in the ingress-nginx namespace (the Ingress Controller).
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          # AND from pods with this label within that namespace.
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: 8080               # Only the application port. Not metrics (9090).
+          protocol: TCP
+
+---
+# ALLOW PROMETHEUS TO SCRAPE METRICS
+# Allow Prometheus (in monitoring namespace) to scrape metrics port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: payments
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9090
+          protocol: TCP
+
+---
+# ALLOW PAYMENT-API TO REACH POSTGRES (EGRESS)
+# Egress policy: restrict what payment-api can connect TO.
+# Without this (and with egress default-deny): payment-api can't reach its DB.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: payment-api-egress
+  namespace: payments
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-api
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS (CoreDNS in kube-system namespace) — required for ALL services.
+    # Without this, all DNS lookups fail, breaking ALL outbound connections.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+    # Allow connecting to postgres in same namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+
+    # Allow connecting to Kafka (different namespace).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: infrastructure
+          podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - port: 9092
+          protocol: TCP
+
+---
+# ===========================================================================
+# SERVICE MESH NOTE (Istio/Linkerd) — when to use instead of/alongside Ingress
+# ===========================================================================
+# Ingress handles North-South traffic: external → cluster.
+# Service Mesh handles East-West traffic: service → service (inside cluster).
+#
+# Service Mesh provides (at L7, not L4 like NetworkPolicy):
+#   - mTLS between all services: every service-to-service call is encrypted
+#     and authenticated. Even if attacker gets inside cluster, can't MITM traffic.
+#   - Traffic splitting: 90% to v1, 10% to v2 (canary without app changes).
+#   - Circuit breaking: stop sending to failing pods automatically.
+#   - Retry and timeout policies: without changing application code.
+#   - Distributed tracing: automatic trace propagation between services.
+#   - Fine-grained AuthorizationPolicy: allow service A to call service B
+#     only on specific paths with specific methods.
+#
+# Cost: adds sidecar proxy (Envoy) to every pod → 50-150MB RAM overhead per pod.
+# Operational complexity: Istio has a steep learning curve.
+# Recommendation: Start without service mesh. Add when you need:
+#   - Compliance requirement for mTLS everywhere
+#   - Traffic splitting for canary deployments
+#   - Centralized observability without code changes
+#
+# Linkerd is simpler than Istio, lower overhead, easier to operate.
+# Istio is more feature-rich, better for complex traffic management.
+# ===========================================================================

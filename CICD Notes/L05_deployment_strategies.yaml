@@ -1,0 +1,364 @@
+# =============================================================================
+# WHAT: Deployment Strategies for Production Systems
+# WHY:  How you deploy is as critical as what you deploy. Wrong strategy =
+#       downtime, data corruption, or rollback nightmares at 2am with millions
+#       of users affected. These strategies trade off speed, cost, and risk.
+# LEVEL: Senior / Architect — production systems at scale
+# =============================================================================
+#
+# CONCEPT OVERVIEW
+# ----------------
+# A deployment strategy defines HOW a new version of software replaces the old.
+# The core tradeoffs:
+#   - Risk:      Can you rollback instantly? What happens if the new version is bad?
+#   - Cost:      Do you need double the infrastructure temporarily?
+#   - Speed:     How long does the deploy take?
+#   - Complexity: How much tooling/config does this require?
+#
+# PRODUCTION USE CASE
+# -------------------
+# A fintech app with 2M daily active users cannot afford 5 minutes of downtime
+# for a deploy. A/B testing new checkout flow needs traffic splitting. A DB
+# schema migration needs careful orchestration. Each case = different strategy.
+#
+# COMMON MISTAKES
+# ---------------
+# - Using "Recreate" in production (has downtime)
+# - Not having a rollback plan BEFORE deploying
+# - Running canary without monitoring (you need metrics to know if it's bad)
+# - Blue/Green without draining connections on the old version
+# =============================================================================
+
+---
+# =============================================================================
+# STRATEGY 1: BLUE/GREEN DEPLOYMENT
+# =============================================================================
+# Two identical environments: "blue" (current live traffic) and
+# "green" (new version being deployed to). Once green is tested,
+# the load balancer or DNS is switched. Rollback = switch back to blue.
+#
+# PROS:
+#   - Instant rollback (just switch selector back)
+#   - No mixed version traffic (all users on same version at same time)
+#   - Can smoke test green before any real traffic hits it
+#
+# CONS:
+#   - Double infrastructure cost during deployment window
+#   - Session state: users in the middle of a session hit the new version
+#   - Database migrations must be backward-compatible (both versions share same DB)
+#
+# WHEN TO USE:
+#   - High-risk releases where instant rollback is mandatory
+#   - Compliance/regulated environments
+#   - When you can afford double infra cost (even briefly)
+# =============================================================================
+
+# --- Kubernetes Blue/Green: two Deployments, one Service ---
+# The Service's selector is the "switch" — change the label value to
+# point traffic from blue to green. No DNS TTL wait, no gradual shift.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-blue                    # Current live version
+  labels:
+    app: myapp
+    slot: blue                        # Slot label differentiates the two
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: myapp
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: myapp
+        slot: blue
+    spec:
+      containers:
+        - name: myapp
+          image: myapp:v1.2.3         # Current stable version
+          ports:
+            - containerPort: 8080
+          # Readiness probe is critical — K8s won't route traffic until pod is ready
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-green                   # New version being tested
+  labels:
+    app: myapp
+    slot: green
+spec:
+  replicas: 5                         # Same replica count as blue
+  selector:
+    matchLabels:
+      app: myapp
+      slot: green
+  template:
+    metadata:
+      labels:
+        app: myapp
+        slot: green
+    spec:
+      containers:
+        - name: myapp
+          image: myapp:v1.3.0         # New version — not live yet
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  selector:
+    app: myapp
+    slot: blue                        # <--- CHANGE THIS to "green" to switch traffic
+                                      # This is the entire "deployment" step
+                                      # kubectl patch svc myapp-service -p '{"spec":{"selector":{"slot":"green"}}}'
+                                      # Rollback: patch back to "blue"
+  ports:
+    - port: 80
+      targetPort: 8080
+
+# =============================================================================
+# STRATEGY 2: CANARY DEPLOYMENT
+# =============================================================================
+# Route a small percentage of real traffic to the new version.
+# Monitor error rates, latency, business metrics. Gradually increase %.
+# If anything looks wrong, route 0% to canary = instant rollback.
+#
+# PROS:
+#   - Real user traffic validation (not just synthetic tests)
+#   - Gradual blast radius — only X% of users see a bad version
+#   - Can test on production data/load (staging never matches prod exactly)
+#
+# CONS:
+#   - Users see different versions simultaneously (UX inconsistency)
+#   - Requires good observability (without metrics, canary is dangerous)
+#   - More complex than blue/green
+#
+# WHEN TO USE:
+#   - ML model updates (did the new model actually improve CTR?)
+#   - Database schema migrations (new code must be compatible with old schema)
+#   - High-risk features where staging doesn't give confidence
+#   - When you want real user signals before full rollout
+# =============================================================================
+
+# --- Kubernetes Canary with nginx-ingress annotations ---
+# nginx-ingress reads these annotations and splits traffic at the ingress layer.
+# 90% -> myapp-stable, 10% -> myapp-canary
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-canary
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"         # Mark as canary ingress
+    nginx.ingress.kubernetes.io/canary-weight: "10"    # 10% of traffic → canary
+    # Alternatively, route by header (for internal testing before % rollout):
+    # nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    # nginx.ingress.kubernetes.io/canary-by-header-value: "true"
+    # Rollback: set canary-weight to "0" — zero traffic to canary
+spec:
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp-canary-service             # Points to new version pods
+                port:
+                  number: 80
+
+# --- Istio VirtualService for canary (Service Mesh approach) ---
+# More powerful: can split on headers, cookies, user attributes
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: myapp-vs
+spec:
+  hosts:
+    - myapp-service
+  http:
+    - route:
+        - destination:
+            host: myapp-service
+            subset: stable           # Defined in DestinationRule
+          weight: 90                 # 90% to stable
+        - destination:
+            host: myapp-service
+            subset: canary
+          weight: 10                 # 10% to canary
+        # To rollback: change canary weight to 0
+        # To complete rollout: change stable to 0, canary to 100
+        # Then redeploy "stable" with the new image and flip back
+
+# =============================================================================
+# STRATEGY 3: ROLLING UPDATE (Kubernetes Default)
+# =============================================================================
+# Replace pods one (or a few) at a time. New pods start, old pods stop.
+# Default Kubernetes behavior — happens automatically on image change.
+#
+# PROS:
+#   - No extra infrastructure cost
+#   - Built into Kubernetes natively
+#   - Simple to use
+#
+# CONS:
+#   - Old and new versions run simultaneously during rollout (backward compatibility required)
+#   - Slower than blue/green
+#   - Rollback takes time (rolls back pod by pod)
+#
+# WHEN TO USE:
+#   - Default for most services
+#   - When you can't afford double infra
+#   - Backward-compatible changes
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-rolling
+spec:
+  replicas: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2            # Allow 2 extra pods above desired count (speeds up rollout)
+      maxUnavailable: 0      # Never remove a pod until a new one is Ready (zero-downtime)
+                             # COMMON MISTAKE: default maxUnavailable=1 means 1 pod can
+                             # be down, causing brief capacity reduction under load
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp
+          image: myapp:v1.3.0
+          # terminationGracePeriodSeconds lets in-flight requests finish
+          # before the pod is killed — critical for zero-downtime rolling updates
+      terminationGracePeriodSeconds: 30
+  # Rollback: kubectl rollout undo deployment/myapp
+  # Pin to specific revision: kubectl rollout undo deployment/myapp --to-revision=3
+  # Check status: kubectl rollout status deployment/myapp
+
+# =============================================================================
+# STRATEGY 4: RECREATE (Development/Staging Only)
+# =============================================================================
+# Stop all old pods, then start new pods. Simple but has DOWNTIME.
+# Only appropriate for: dev/staging, or truly incompatible changes where
+# running both versions simultaneously would cause data corruption.
+# =============================================================================
+
+# strategy:
+#   type: Recreate   # ALL old pods terminated, THEN new pods start
+                     # Gap = downtime. NEVER in production unless intentional.
+
+# =============================================================================
+# STRATEGY 5: FEATURE FLAGS
+# =============================================================================
+# Deploy code behind a flag. Enable flag for 1% → 10% → 100%.
+# Decouples deployment (code goes to prod) from release (users see it).
+# Can turn off instantly without any infrastructure change.
+#
+# TOOLS: LaunchDarkly, Unleash (self-hosted), Flagsmith (open source), AWS AppConfig
+#
+# DARK LAUNCHING: Run new code path for ALL requests, but don't show the result.
+# Validate correctness and performance against production traffic before enabling.
+#
+# WHEN TO USE:
+#   - A/B testing
+#   - Gradual user rollouts (ring-based: internal → beta → all)
+#   - Kill switches for risky features
+#   - Testing at production scale without exposing users
+# =============================================================================
+
+# GitHub Actions: Canary Deploy with Automatic Rollback on Error Rate Spike
+# This is the automation layer that makes canary safe at scale.
+
+name: canary-deploy-with-rollback
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy as canary'
+        required: true
+
+jobs:
+  deploy-canary:
+    name: Deploy Canary (10% traffic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30              # Never let a deploy hang forever
+    steps:
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name prod-cluster
+
+      - name: Deploy canary pods
+        run: |
+          # Update canary Deployment with new image
+          kubectl set image deployment/myapp-canary myapp=${{ inputs.image_tag }}
+          kubectl rollout status deployment/myapp-canary --timeout=10m
+
+      - name: Route 10% traffic to canary
+        run: |
+          kubectl patch ingress myapp-canary \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"10"}}}'
+
+      - name: Monitor error rate for 5 minutes
+        run: |
+          echo "Monitoring Prometheus for 5 minutes..."
+          for i in $(seq 1 10); do
+            sleep 30
+            # Query Prometheus for 5xx rate on canary pods
+            ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query" \
+              --data-urlencode 'query=sum(rate(http_requests_total{status=~"5..",version="canary"}[1m])) / sum(rate(http_requests_total{version="canary"}[1m])) * 100' \
+              | jq -r '.data.result[0].value[1] // "0"')
+            echo "Canary error rate: ${ERROR_RATE}%"
+            # Fail fast if error rate exceeds 1%
+            if (( $(echo "$ERROR_RATE > 1.0" | bc -l) )); then
+              echo "ERROR RATE SPIKE: ${ERROR_RATE}% — triggering rollback"
+              exit 1
+            fi
+          done
+
+      - name: Promote canary to 100% (rollout complete)
+        if: success()
+        run: |
+          kubectl set image deployment/myapp-stable myapp=${{ inputs.image_tag }}
+          kubectl rollout status deployment/myapp-stable --timeout=10m
+          # Remove canary ingress (stable now has new version)
+          kubectl patch ingress myapp-canary \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+
+      - name: ROLLBACK on failure
+        if: failure()
+        run: |
+          echo "Rolling back canary — setting weight to 0%"
+          kubectl patch ingress myapp-canary \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+          kubectl rollout undo deployment/myapp-canary
+          echo "Rollback complete. 0% traffic to canary. Stable version unaffected."

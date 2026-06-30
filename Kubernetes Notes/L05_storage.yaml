@@ -1,0 +1,607 @@
+# ============================================================
+# L05: Kubernetes Storage
+# ============================================================
+# WHAT: How Kubernetes abstracts, provisions, and manages persistent
+#       storage for stateful workloads using PVs, PVCs, StorageClasses,
+#       StatefulSets, and CSI drivers.
+# WHY:  Containers are ephemeral — their filesystems die with them.
+#       Kubernetes storage objects decouple storage provisioning from
+#       consumption, enabling cloud-portable, operator-managed persistence.
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   Kubernetes storage has two planes:
+#     1. CONTROL PLANE: PersistentVolume (PV), StorageClass — cluster-level
+#        resources created by admins or dynamic provisioners.
+#     2. WORKLOAD PLANE: PersistentVolumeClaim (PVC) — namespace-level
+#        requests by developers that get BOUND to a matching PV.
+#
+#   The binding process:
+#     Static:  admin creates PV manually → PVC finds a matching PV
+#     Dynamic: PVC references a StorageClass → CSI driver creates PV + disk
+#
+#   Storage is fundamentally different from compute: you can replace a
+#   broken pod in seconds, but a broken disk can mean data loss.
+#
+# PRODUCTION USE CASE:
+#   Kafka on Kubernetes: each broker needs its own block device for
+#   sequential writes (throughput-critical). Use StatefulSet with
+#   volumeClaimTemplates so each pod gets its own PVC bound to its
+#   own EBS/PD volume. Broker IDs are stable across restarts.
+#
+# COMMON MISTAKES:
+#   - Using ReadWriteOnce PVC with a Deployment (multi-pod) — only one
+#     pod can mount block storage at a time; use StatefulSet or RWX.
+#   - Forgetting reclaimPolicy: Retain — default is Delete, which
+#     destroys the underlying disk when PVC is deleted (data loss!).
+#   - Mounting the same PVC on multiple pods on different nodes with
+#     a block storage driver (EBS, Azure Disk) — it will fail or
+#     cause split-brain.
+#   - Not requesting storage classes with WaitForFirstConsumer binding
+#     mode — pods and volumes may land in different AZs.
+# ============================================================
+
+
+# ============================================================
+# SECTION 1: PersistentVolume (PV)
+# ============================================================
+# A PV is a CLUSTER-LEVEL resource representing a piece of storage
+# that has been provisioned (manually or dynamically).
+# It exists independently of any pod or namespace.
+# Think of it as "the actual disk" registered with Kubernetes.
+#
+# Key fields:
+#   capacity.storage  — how much storage is available
+#   accessModes       — who can mount it (see section below)
+#   reclaimPolicy     — what happens to the disk when PVC is deleted
+#   storageClassName  — links this PV to a StorageClass for matching
+#   volumeMode        — Filesystem (default) or Block (raw device)
+#   persistentVolumeReclaimPolicy:
+#     Retain  — keep the disk, admin must reclaim manually (SAFE for prod)
+#     Delete  — delete the underlying cloud disk (DANGEROUS, use carefully)
+#     Recycle — deprecated, do not use
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-kafka-broker-0
+  labels:
+    app: kafka
+    broker-id: "0"
+    # Labels on PVs are used for nodeAffinity and manual PVC binding
+spec:
+  capacity:
+    storage: 500Gi                # The size of the underlying disk
+  accessModes:
+    - ReadWriteOnce               # Block storage: only ONE node can mount at a time
+                                  # EBS, Azure Disk, GCP PD are all RWO
+  persistentVolumeReclaimPolicy: Retain
+    # CRITICAL: Retain means if the PVC is deleted, the PV and its data
+    # survive. An admin must manually release/re-bind or delete.
+    # In production, ALWAYS use Retain for anything stateful.
+    # Delete is fine for caches/scratch space.
+  storageClassName: kafka-ssd
+    # Must match the storageClassName in the PVC for binding to occur.
+    # If you use "" (empty string), this PV can only be bound to a PVC
+    # that explicitly requests no storage class (rare).
+  volumeMode: Filesystem
+    # Filesystem: K8s formats the disk and mounts it as a directory.
+    # Block: raw block device passed directly to the pod.
+    # Use Block for databases that do their own I/O (e.g., some SANs).
+  # CSI volume source — the actual cloud disk reference
+  csi:
+    driver: ebs.csi.aws.com       # The CSI driver name (AWS EBS)
+    volumeHandle: vol-0abc123def456789
+      # The cloud provider's disk ID — this is what Kubernetes tells
+      # the CSI driver to attach to the node.
+    fsType: ext4
+    volumeAttributes:
+      throughput: "250"           # MB/s (gp3 allows separate IOPS/throughput)
+
+
+---
+# ============================================================
+# SECTION 2: Access Modes
+# ============================================================
+# Access modes define HOW a volume can be mounted.
+# The mode you request must be supported by the storage driver.
+#
+#   ReadWriteOnce (RWO)
+#     - One node can mount the volume for read+write
+#     - All PODS on that node share the mount
+#     - Supported by: EBS, Azure Disk, GCP PD, local volumes
+#     - USE FOR: single-node databases, Kafka brokers, ZooKeeper
+#
+#   ReadWriteMany (RWX)
+#     - Multiple nodes can mount for read+write simultaneously
+#     - Supported by: NFS, AWS EFS, Azure Files, CephFS, Longhorn
+#     - USE FOR: shared upload directories, ML training data shared
+#               across many GPU nodes, legacy NFS workloads
+#     - CAUTION: concurrency control is YOUR responsibility (not K8s)
+#
+#   ReadOnlyMany (ROX)
+#     - Multiple nodes can mount read-only simultaneously
+#     - USE FOR: serving static assets, ML model weights to inference pods
+#
+#   ReadWriteOncePod (RWOP) — K8s 1.22+
+#     - Only ONE POD cluster-wide can mount (stricter than RWO)
+#     - Guarantees no concurrent access even across nodes
+#     - USE FOR: databases requiring strict single-writer guarantees
+
+
+# ============================================================
+# SECTION 3: PersistentVolumeClaim (PVC)
+# ============================================================
+# A PVC is a NAMESPACE-LEVEL request for storage.
+# Developers create PVCs; the K8s control plane binds them to PVs.
+# The PVC abstracts the underlying storage details from the workload.
+#
+# Binding rules:
+#   - storage requested <= storage in PV (can bind to larger PV)
+#   - accessModes must match
+#   - storageClassName must match
+#   - volumeMode must match
+#   - selector labels (if specified) must match PV labels
+#
+# Shell: check PVC binding status
+#   kubectl get pvc -n kafka
+#   kubectl describe pvc kafka-data-kafka-0 -n kafka
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: kafka
+  annotations:
+    # Document what this PVC is for — critical for ops teams
+    storage.company.io/owner: "platform-team"
+    storage.company.io/tier: "production"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: kafka-ssd
+    # Reference the StorageClass by name.
+    # If this StorageClass has a provisioner, K8s will dynamically
+    # create a PV automatically (no manual PV creation needed).
+  resources:
+    requests:
+      storage: 500Gi
+      # This is the MINIMUM you need. You may get a larger PV if
+      # the StorageClass provisions exact sizes or rounds up.
+  volumeMode: Filesystem
+
+
+---
+# ============================================================
+# SECTION 4: StorageClass — Dynamic Provisioning
+# ============================================================
+# StorageClass is the blueprint for dynamic provisioning.
+# When a PVC references a StorageClass, the CSI driver automatically
+# creates the underlying cloud disk AND the PV object.
+#
+# This is the recommended approach for cloud environments:
+#   - No manual PV management
+#   - Storage is created on-demand per PVC
+#   - Storage is deleted (or retained) per reclaimPolicy
+#
+# CSI Drivers by cloud:
+#   AWS:   ebs.csi.aws.com       (block)
+#          efs.csi.aws.com       (shared, ReadWriteMany)
+#   GCP:   pd.csi.storage.gke.io (block)
+#          filestore.csi.storage.gke.io (shared)
+#   Azure: disk.csi.azure.com    (block)
+#          file.csi.azure.com    (shared)
+#   On-prem: rook.io/ceph-rbd, longhorn.io
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kafka-ssd
+  annotations:
+    # Only one StorageClass should have this annotation
+    # storageclass.kubernetes.io/is-default-class: "true"
+    # The default StorageClass is used when PVC omits storageClassName
+spec:
+  provisioner: ebs.csi.aws.com
+    # The CSI driver responsible for creating volumes.
+    # Must match the driver installed in your cluster.
+  parameters:
+    # Driver-specific parameters passed to the CSI driver
+    type: gp3
+      # AWS EBS volume type:
+      #   gp3: General Purpose SSD v3 (RECOMMENDED — separate IOPS/throughput control)
+      #   gp2: General Purpose SSD v2 (legacy, IOPS tied to size)
+      #   io2: Provisioned IOPS SSD (latency-sensitive DBs, very expensive)
+      #   st1: Throughput Optimized HDD (sequential workloads like Kafka can use this)
+    iopsPerGB: "50"
+      # For io2 volumes: number of IOPS per GiB provisioned.
+      # For gp3: use the 'iops' key instead (not per-GB)
+    throughput: "250"
+      # MB/s throughput for gp3 volumes (max 1000 MB/s)
+      # gp3 baseline is 125 MB/s, you can increase up to 1000 for free
+    encrypted: "true"
+      # ALWAYS encrypt at rest. In regulated environments (HIPAA, PCI)
+      # this is a hard requirement. Small performance overhead, big compliance win.
+    # kmsKeyId: arn:aws:kms:us-east-1:123456789:key/abc-def
+      # Optional: use a customer-managed KMS key instead of AWS-managed
+  reclaimPolicy: Retain
+    # WHAT HAPPENS when the PVC is deleted:
+    #   Retain: PV and underlying disk survive → admin must clean up
+    #   Delete: PV and underlying disk are deleted automatically
+    # In production: use Retain for stateful data, Delete for scratch/cache
+  allowVolumeExpansion: true
+    # Allow users to expand PVC size by editing spec.resources.requests.storage
+    # The CSI driver resizes the disk. Some drivers require pod restart.
+    # You can only EXPAND, never shrink (filesystem resize is one-way).
+    # Shell: kubectl edit pvc kafka-data → change storage to 1Ti
+  volumeBindingMode: WaitForFirstConsumer
+    # CRITICAL for multi-AZ clusters:
+    #   Immediate:          PV is created as soon as PVC is created
+    #                       → disk may land in a DIFFERENT AZ than the pod
+    #   WaitForFirstConsumer: PV is created only when a pod using the PVC
+    #                       is scheduled → disk is created in the SAME AZ as the pod
+    # ALWAYS use WaitForFirstConsumer for block storage in multi-AZ clusters.
+  mountOptions:
+    - noatime
+      # Don't update access time on reads — reduces unnecessary I/O
+      # Critical for write-heavy workloads like Kafka
+    - nodiratime
+
+
+---
+# ============================================================
+# SECTION 5: StatefulSet with volumeClaimTemplates
+# ============================================================
+# StatefulSet is the K8s workload type for stateful applications.
+# Key differences from Deployment:
+#
+#   ORDERED DEPLOYMENT: pod-0 starts first, then pod-1, then pod-2
+#     → ZooKeeper quorum, Kafka cluster formation, Postgres HA all
+#       require a specific leader/member to be up before followers.
+#
+#   STABLE NETWORK IDENTITY: each pod gets a DNS name:
+#     <pod-name>.<headless-service>.<namespace>.svc.cluster.local
+#     kafka-0.kafka-headless.kafka.svc.cluster.local
+#     → Kafka brokers advertise their own stable hostname to clients.
+#
+#   PER-POD PVC via volumeClaimTemplates:
+#     Each pod gets its OWN PVC. kafka-data-kafka-0, kafka-data-kafka-1, etc.
+#     PVCs are NOT deleted when the StatefulSet is deleted (data safety).
+#     When a pod restarts, it remounts the SAME PVC (same data).
+#
+# WHEN TO USE StatefulSet:
+#   - Apache Kafka (ordered brokers, per-broker data)
+#   - Apache ZooKeeper (ordered ensemble, per-node data)
+#   - Apache Cassandra (gossip protocol, vnodes, per-node ring data)
+#   - MongoDB ReplicaSet (primary election, per-member oplog)
+#   - PostgreSQL HA with Patroni (primary/replica, per-node WAL)
+#   - Redis Sentinel / Redis Cluster
+#   - Elasticsearch (master/data/coordinating roles)
+#
+# WHEN NOT TO USE K8s for stateful workloads (prefer managed services):
+#   - PostgreSQL → prefer AWS RDS, Cloud SQL, Azure Database
+#     (automated backups, PITR, HA failover, patching handled for you)
+#   - MySQL → prefer RDS MySQL, Cloud SQL MySQL
+#   - Redis → prefer AWS ElastiCache, Upstash
+#     (Redis Cluster mode is complex to manage on K8s)
+#   - Simple object storage → use S3/GCS, not a StatefulSet
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka
+  labels:
+    app: kafka
+    component: broker
+spec:
+  serviceName: kafka-headless
+    # REQUIRED: must reference a HEADLESS Service (clusterIP: None)
+    # This service creates per-pod DNS entries.
+    # Without it, pod-to-pod discovery is broken.
+  replicas: 3
+    # 3 brokers = minimum for fault tolerance (1 can fail)
+    # Kafka replication factor should match or be <= replicas
+  podManagementPolicy: OrderedReady
+    # OrderedReady: pods start/stop one at a time in order (default)
+    # Parallel: all pods start/stop simultaneously
+    # Use Parallel for Cassandra (no ordered bootstrap needed)
+    # Use OrderedReady for ZooKeeper, Kafka (ordered cluster join)
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+        # Only update pods with ordinal >= partition.
+        # Set partition: 2 to do canary: only pod-2 gets updated.
+        # Then partition: 1, then 0 after validating.
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        component: broker
+    spec:
+      # terminationGracePeriodSeconds: 120
+      # Give Kafka 2 minutes to drain — flush log segments, close sockets.
+      # Default 30s is too short for Kafka under load.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 9093
+              name: kafka-internal
+          env:
+            - name: KAFKA_BROKER_ID
+              # Inject the pod's ordinal index as the broker ID.
+              # This uses the Downward API — pod-0 gets ID 0, pod-1 gets 1, etc.
+              # Stable IDs are critical for Kafka partition assignment.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+            - name: KAFKA_ADVERTISED_LISTENERS
+              # Brokers must advertise their stable hostname to clients.
+              # kafka-0.kafka-headless.kafka.svc.cluster.local is the DNS name
+              # generated by the StatefulSet + headless service combination.
+              value: "PLAINTEXT://$(POD_NAME).kafka-headless.kafka.svc.cluster.local:9092"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "6Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/kafka/data
+                # This name matches the volumeClaimTemplate name below.
+                # kafka-0 gets PVC kafka-data-kafka-0 mounted here.
+            - name: kafka-logs
+              mountPath: /var/kafka/logs
+  # volumeClaimTemplates: the "per-pod PVC" mechanism
+  # Each replica gets its OWN PVC with a unique name:
+  #   <template-name>-<statefulset-name>-<ordinal>
+  #   kafka-data-kafka-0, kafka-data-kafka-1, kafka-data-kafka-2
+  # These PVCs persist even after pod deletion or StatefulSet scaling.
+  # You must delete them manually when you truly want to wipe data.
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-data
+        labels:
+          app: kafka
+          # Labels applied to created PVCs (for filtering, cost tracking)
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: kafka-ssd
+        resources:
+          requests:
+            storage: 500Gi
+    - metadata:
+        name: kafka-logs
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: kafka-ssd
+        resources:
+          requests:
+            storage: 100Gi
+
+
+---
+# ============================================================
+# SECTION 6: Headless Service for StatefulSet
+# ============================================================
+# A headless service (clusterIP: None) does NOT load-balance.
+# Instead, it creates DNS A records for each individual pod.
+# This enables direct pod-to-pod addressing by stable DNS name.
+#
+# Shell: nslookup kafka-headless.kafka.svc.cluster.local
+#   → Returns 3 A records, one per pod
+#
+# Shell: nslookup kafka-0.kafka-headless.kafka.svc.cluster.local
+#   → Returns exactly pod-0's IP
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: kafka
+spec:
+  clusterIP: None
+    # THIS is what makes it headless. No virtual IP, no load balancing.
+    # DNS returns individual pod IPs instead.
+  selector:
+    app: kafka
+  ports:
+    - port: 9092
+      name: kafka
+
+
+---
+# ============================================================
+# SECTION 7: Ephemeral Volumes
+# ============================================================
+# Not all storage needs to persist. Ephemeral volumes exist only
+# for the lifetime of a pod (or share between containers in a pod).
+#
+# emptyDir:
+#   - Created when pod is scheduled onto a node
+#   - Survives container restarts within the pod (data stays if container crashes)
+#   - Deleted when the pod is removed from the node
+#   - Shared between ALL containers in the pod (via separate mountPaths)
+#   - USE FOR: scratch space, inter-container communication, caches
+#
+# emptyDir.medium: Memory
+#   - Backed by tmpfs (RAM) instead of disk
+#   - Much faster I/O (RAM speeds)
+#   - Uses node memory — counted against container memory limits
+#   - Cleared on pod restart (unlike disk emptyDir)
+#   - USE FOR: shared memory buffers, secrets you don't want on disk,
+#              JVM temp files that need high-speed scratch
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-scratch
+  namespace: default
+spec:
+  containers:
+    - name: app
+      image: myapp:latest
+      volumeMounts:
+        - name: scratch
+          mountPath: /tmp/scratch
+        - name: shared-memory
+          mountPath: /dev/shm
+            # /dev/shm is the conventional mount path for shared memory
+            # Required by some ML frameworks (PyTorch DataLoader workers)
+        - name: config
+          mountPath: /etc/app/config
+        - name: app-secret
+          mountPath: /etc/app/secrets
+          readOnly: true
+    - name: sidecar
+      image: sidecar:latest
+      volumeMounts:
+        - name: scratch
+          mountPath: /data/input
+            # Same emptyDir volume as the app container — they share files
+  volumes:
+    - name: scratch
+      emptyDir: {}
+        # Disk-backed temporary storage. Grows up to node disk space.
+        # sizeLimit restricts how much of the disk it can use.
+        # sizeLimit: 10Gi
+    - name: shared-memory
+      emptyDir:
+        medium: Memory
+          # tmpfs — RAM-backed. FAST. Limited by node RAM.
+          # Set a sizeLimit to prevent runaway memory usage.
+        sizeLimit: 2Gi
+    - name: config
+      configMap:
+        name: app-config
+          # ConfigMap data is mounted as files. Pod must be recreated
+          # to pick up ConfigMap changes (or use a file watcher).
+    - name: app-secret
+      secret:
+        secretName: app-secrets
+          # Secret data is mounted as files. Stored in tmpfs by K8s.
+          # Mounted read-only to prevent accidental writes.
+          # Rotate secrets with External Secrets Operator or Vault.
+
+
+---
+# ============================================================
+# SECTION 8: Volume Snapshots
+# ============================================================
+# VolumeSnapshot provides point-in-time copies of PVC data.
+# Used for: backups before upgrades, cloning environments,
+#            rapid restore during incident response.
+#
+# Requires: VolumeSnapshot CRD + CSI driver with snapshot support.
+# AWS EBS CSI driver, GCP PD CSI, Azure Disk CSI all support snapshots.
+#
+# Shell: take a snapshot
+#   kubectl apply -f snapshot.yaml
+#
+# Shell: list snapshots
+#   kubectl get volumesnapshot -n kafka
+#
+# Shell: restore a PVC from snapshot
+#   kubectl apply -f pvc-from-snapshot.yaml
+#
+# PRODUCTION PRACTICE:
+#   - Take snapshot before every Kafka upgrade
+#   - Daily automated snapshots via CronJob + kubectl apply
+#   - Test restore quarterly (a snapshot you haven't tested is just hope)
+
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ebs-vsc
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+      # Velero (backup tool) uses this label to find the right snapshot class
+spec:
+  driver: ebs.csi.aws.com
+  deletionPolicy: Retain
+    # Retain: keep the snapshot even if VolumeSnapshot object is deleted
+    # Delete: delete cloud snapshot when VolumeSnapshot object is deleted
+
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: kafka-data-snapshot-2024-01-15
+  namespace: kafka
+spec:
+  volumeSnapshotClassName: ebs-vsc
+  source:
+    persistentVolumeClaimName: kafka-data-kafka-0
+      # Take a snapshot of this specific PVC.
+      # For Kafka, it's best to take snapshots while broker is in
+      # a clean state (after flushing segments if possible).
+
+---
+# Restore: create a PVC from a snapshot (for dev/staging clone or disaster recovery)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data-restored
+  namespace: kafka
+spec:
+  dataSource:
+    name: kafka-data-snapshot-2024-01-15
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+      # K8s calls the CSI driver to create a new volume from this snapshot
+  accessModes: [ReadWriteOnce]
+  storageClassName: kafka-ssd
+  resources:
+    requests:
+      storage: 500Gi
+        # Must be >= the source PVC size
+
+
+# ============================================================
+# SECTION 9: Key Shell Commands Reference
+# ============================================================
+#
+# --- PV / PVC Inspection ---
+# kubectl get pv                                   # list all cluster PVs
+# kubectl get pvc -A                               # list all PVCs across namespaces
+# kubectl describe pvc kafka-data-kafka-0 -n kafka # see binding, events, capacity
+# kubectl get pvc kafka-data-kafka-0 -o yaml       # raw YAML including volume name
+#
+# --- StorageClass ---
+# kubectl get storageclass                         # list storage classes
+# kubectl describe storageclass kafka-ssd          # provisioner, parameters
+#
+# --- PVC Expansion ---
+# kubectl edit pvc kafka-data-kafka-0 -n kafka
+#   → change spec.resources.requests.storage: 500Gi → 1Ti
+#   → K8s triggers CSI driver to resize the block device
+#   → Some drivers require pod restart for filesystem resize
+#
+# --- StatefulSet ---
+# kubectl get statefulset -n kafka                 # list StatefulSets
+# kubectl rollout status statefulset kafka -n kafka # watch ordered rollout
+# kubectl scale statefulset kafka --replicas=5 -n kafka # scale out (be careful)
+# kubectl rollout undo statefulset kafka -n kafka  # rollback
+#
+# --- Snapshots ---
+# kubectl get volumesnapshotclass
+# kubectl get volumesnapshot -A
+# kubectl describe volumesnapshot kafka-data-snapshot-2024-01-15 -n kafka
+#
+# --- Debugging ---
+# kubectl get events --sort-by=.lastTimestamp -n kafka
+#   → Look for "FailedMount", "ProvisioningFailed", "VolumeNotFound"
+# kubectl describe pod kafka-0 -n kafka
+#   → Check "Volumes" section and "Events" for mount failures
+# kubectl exec -it kafka-0 -n kafka -- df -h
+#   → Verify volume is mounted and check disk usage

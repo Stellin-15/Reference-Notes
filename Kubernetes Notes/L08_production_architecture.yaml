@@ -1,0 +1,790 @@
+# ============================================================
+# L08: Kubernetes Production Architecture (Millions of Users)
+# ============================================================
+# WHAT: The full set of Kubernetes primitives, configurations, and
+#       patterns required to run a production system at scale — covering
+#       scheduling, security, observability, GitOps, and incident response.
+# WHY:  "It works on my laptop" configurations collapse under real traffic.
+#       Production K8s requires deliberate decisions on scheduling policy,
+#       security posture, observability, and operational runbooks.
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   Production K8s is not about any single feature — it's the
+#   combination of many defaults changed intentionally:
+#     - WHERE pods run (topology, affinity, priority)
+#     - HOW they communicate (NetworkPolicy default-deny)
+#     - HOW MUCH they consume (ResourceQuota, LimitRange)
+#     - HOW SAFE they run (PodSecurity, non-root, read-only FS)
+#     - HOW you deploy (GitOps, ArgoCD, audit trail = git history)
+#     - HOW you observe (metrics, logs, traces, alerts)
+#     - HOW you respond to incidents (kubectl runbook, PDB, drain)
+#
+# PRODUCTION USE CASE:
+#   Platform serving 5M DAU across 3 AWS regions:
+#     - 3 EKS clusters (us-east-1, eu-west-1, ap-southeast-1)
+#     - Each cluster: 3 AZs, Cluster Autoscaler, 20-100 nodes
+#     - ArgoCD syncs all 3 clusters from a single git repo
+#     - Prometheus + Grafana in each cluster, Thanos for global view
+#     - PagerDuty alerts routed from AlertManager
+#
+# COMMON MISTAKES:
+#   - No topology constraints — all pods scheduled to one AZ, AZ
+#     failure takes down 100% of service instead of 33%.
+#   - Default network policy = allow all — any compromised pod can
+#     reach any database, secret store, or internal API.
+#   - No ResourceQuota — one team's bad deployment consumes all
+#     cluster CPU, starving every other namespace.
+#   - Privileged containers or running as root — if a container is
+#     compromised, attacker has root on the node.
+#   - No PriorityClasses — during node shortage, K8s may evict your
+#     Kafka brokers to schedule a dev batch job.
+#   - Manual kubectl apply to production — no audit trail, no review,
+#     no rollback to a known-good state.
+# ============================================================
+
+
+# ============================================================
+# PRODUCTION ARCHITECTURE DIAGRAM (text art)
+# ============================================================
+#
+#  ┌─────────────────── EKS Cluster (us-east-1) ──────────────────────┐
+#  │                                                                    │
+#  │  ┌─── AZ-a ──────┐  ┌─── AZ-b ──────┐  ┌─── AZ-c ──────┐       │
+#  │  │               │  │               │  │               │       │
+#  │  │ ┌───────────┐ │  │ ┌───────────┐ │  │ ┌───────────┐ │       │
+#  │  │ │ api pod   │ │  │ │ api pod   │ │  │ │ api pod   │ │       │
+#  │  │ │ api pod   │ │  │ │ api pod   │ │  │ │ api pod   │ │       │
+#  │  │ └───────────┘ │  │ └───────────┘ │  │ └───────────┘ │       │
+#  │  │ ┌───────────┐ │  │ ┌───────────┐ │  │ ┌───────────┐ │       │
+#  │  │ │ worker    │ │  │ │ worker    │ │  │ │ worker    │ │       │
+#  │  │ └───────────┘ │  │ └───────────┘ │  │ └───────────┘ │       │
+#  │  │ ┌───────────┐ │  │ ┌───────────┐ │  │ ┌───────────┐ │       │
+#  │  │ │kafka-0    │ │  │ │kafka-1    │ │  │ │kafka-2    │ │       │
+#  │  │ │(500Gi EBS)│ │  │ │(500Gi EBS)│ │  │ │(500Gi EBS)│ │       │
+#  │  │ └───────────┘ │  │ └───────────┘ │  │ └───────────┘ │       │
+#  │  └───────────────┘  └───────────────┘  └───────────────┘       │
+#  │                                                                    │
+#  │  ┌─────────────────────────────────────────────────────────────┐  │
+#  │  │   Monitoring NS: Prometheus │ Grafana │ AlertManager        │  │
+#  │  │   Logging NS:    Fluent Bit DaemonSet → Loki               │  │
+#  │  │   Ingress NS:    ingress-nginx │ cert-manager              │  │
+#  │  └─────────────────────────────────────────────────────────────┘  │
+#  └────────────────────────────────────────────────────────────────────┘
+#          │                    │
+#          ▼                    ▼
+#     ALB (AWS)            Route53 weighted
+#     (HTTPS/443)          routing across regions
+#
+#  GitOps: GitHub → ArgoCD watches → applies to cluster
+#  Secrets: AWS Secrets Manager → External Secrets Operator → K8s Secrets
+
+
+# ============================================================
+# SECTION 1: topologySpreadConstraints
+# ============================================================
+# topologySpreadConstraints tell the scheduler WHERE to place pods
+# relative to the topology of the cluster (zones, nodes, racks).
+# This is the modern replacement for podAntiAffinity for spreading.
+#
+# Without this, the scheduler may pack all 10 API pods onto one AZ.
+# If that AZ goes down: 100% outage. With spreading: 33% capacity lost.
+#
+# maxSkew: the maximum imbalance allowed between topology domains.
+#   maxSkew: 1 means no domain can have more than 1 extra pod vs the least.
+#   Example with 9 pods across 3 zones: 3/3/3 allowed, 5/2/2 not allowed.
+#
+# whenUnsatisfiable:
+#   DoNotSchedule: pod stays Pending if constraint can't be met (strict)
+#   ScheduleAnyway: violate constraint if no choice (soft — prefer over hard block)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: production
+spec:
+  replicas: 9
+    # 9 replicas: 3 per AZ in a 3-AZ cluster (perfect distribution).
+    # Always choose replicas divisible by number of AZs for clean spreading.
+  selector:
+    matchLabels:
+      app: api-server
+  template:
+    metadata:
+      labels:
+        app: api-server
+    spec:
+      topologySpreadConstraints:
+        # Constraint 1: Spread across AVAILABILITY ZONES
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+            # This standard label is set on all K8s nodes automatically
+            # by the cloud provider node lifecycle controller.
+            # Values: us-east-1a, us-east-1b, us-east-1c
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: api-server
+              # Only count pods with this label when calculating skew.
+              # Must match the template's pod labels.
+        # Constraint 2: Spread across NODES (within each zone)
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+            # Each node has a unique hostname label.
+            # This ensures no two api-server pods land on the same node.
+          whenUnsatisfiable: ScheduleAnyway
+            # Soft constraint for node spreading — don't block scheduling
+            # if we can't perfectly spread (e.g., 3 pods, 2 nodes in zone).
+          labelSelector:
+            matchLabels:
+              app: api-server
+      # Pod anti-affinity (use ALONGSIDE topologySpreadConstraints for
+      # hard guarantees when spreading is critical)
+      affinity:
+        podAntiAffinity:
+          # requiredDuringSchedulingIgnoredDuringExecution = HARD constraint.
+          # Pod will NOT be scheduled if this rule cannot be satisfied.
+          # Use for: "never put two primary databases on the same node".
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [api-server]
+              topologyKey: kubernetes.io/hostname
+                # No two api-server pods on the same NODE (hard rule).
+          # preferredDuringSchedulingIgnoredDuringExecution = SOFT constraint.
+          # Scheduler prefers to satisfy this but will schedule anyway if needed.
+          # Use for: "prefer different AZs but don't block if only one AZ available".
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+                # Higher weight = stronger preference (range 1-100)
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [api-server]
+                topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: api-server
+          image: mycompany/api-server:v2.1.0
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+
+
+---
+# ============================================================
+# SECTION 2: PriorityClasses
+# ============================================================
+# PriorityClass assigns an integer priority to pods.
+# When the cluster is under resource pressure (node failures,
+# burst traffic), the scheduler evicts lower-priority pods to
+# make room for higher-priority ones (PREEMPTION).
+#
+# Default K8s system priorities:
+#   system-cluster-critical: 2000000000 (etcd, kube-apiserver)
+#   system-node-critical:    2000001000 (kubelet, kube-proxy)
+#
+# Best practice: define a hierarchy that reflects business value.
+# A batch ML job should never starve a customer-facing API.
+
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: database-critical
+value: 1000000
+  # Very high — databases should almost never be preempted.
+  # Only system-critical components rank higher.
+globalDefault: false
+  # globalDefault: true would make this the default for ALL pods.
+  # Only set one PriorityClass as globalDefault.
+description: "Production databases and stateful stores"
+preemptionPolicy: PreemptLowerPriority
+  # PreemptLowerPriority: will evict lower-priority pods to schedule this pod
+  # Never: will not preempt — pod waits in queue instead
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: api-high
+value: 900000
+description: "Customer-facing API servers (latency-sensitive)"
+preemptionPolicy: PreemptLowerPriority
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: worker-medium
+value: 500000
+description: "Async workers, queue consumers"
+preemptionPolicy: PreemptLowerPriority
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: batch-low
+value: 100000
+description: "Batch jobs, ML training, report generation"
+preemptionPolicy: Never
+  # Batch jobs should NEVER preempt anything — they wait for capacity.
+
+---
+# Apply PriorityClass to a pod by name:
+# spec:
+#   priorityClassName: api-high
+#   containers: [...]
+
+
+# ============================================================
+# SECTION 3: Network Policies
+# ============================================================
+# NetworkPolicy is a firewall at the pod/namespace level.
+# By default, K8s allows ALL pod-to-pod traffic (no isolation).
+# NetworkPolicy uses pod/namespace label selectors to define rules.
+#
+# REQUIRES: a CNI plugin that enforces NetworkPolicy.
+#   Calico, Cilium, Weave — all support it.
+#   The default kubenet/flannel does NOT enforce NetworkPolicy.
+#
+# Strategy: default-deny-all, then explicitly allow what's needed.
+# This is the production security posture ("allowlist" approach).
+#
+# Shell: check if NetworkPolicy is enforced
+#   kubectl get networkpolicy -A
+#   kubectl describe networkpolicy default-deny-all -n production
+
+---
+# Step 1: Default deny ALL ingress and egress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: production
+spec:
+  podSelector: {}
+    # Empty podSelector = applies to ALL pods in this namespace.
+  policyTypes:
+    - Ingress
+    - Egress
+    # Block ALL ingress and egress by default.
+    # Every allowed connection must be explicitly whitelisted below.
+
+---
+# Step 2: Allow API pods to receive traffic from the ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: api-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+              # Only allow traffic from the ingress-nginx namespace.
+              # kubernetes.io/metadata.name is auto-set on every namespace.
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              # And only from the ingress-nginx pods specifically.
+      ports:
+        - port: 8080
+          protocol: TCP
+
+---
+# Step 3: Allow API pods to reach the database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-postgres
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+        # This policy applies to POSTGRES pods — controls who can reach them.
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-server
+              # Only api-server pods can connect to postgres.
+              # Workers, batch jobs, and everything else are blocked.
+      ports:
+        - port: 5432
+          protocol: TCP
+
+---
+# Step 4: Allow DNS resolution (essential — without this, pods can't resolve names)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: production
+spec:
+  podSelector: {}
+    # All pods need DNS
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+
+---
+# ============================================================
+# SECTION 4: ResourceQuota and LimitRange
+# ============================================================
+# ResourceQuota: enforce per-NAMESPACE limits on total resource consumption.
+#   Without this: one team's broken Deployment can consume all cluster CPU.
+#   With this: each namespace is sandboxed to a budget.
+#
+# LimitRange: enforce per-POD/CONTAINER defaults and limits.
+#   Without this: developers who forget to set resources.requests get
+#   BestEffort pods that are evicted first under pressure.
+#   With this: every container gets a default request even if omitted.
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    requests.cpu: "100"
+      # Total CPU requests across all pods in this namespace: max 100 cores.
+      # This prevents one namespace from monopolizing cluster CPU scheduling.
+    requests.memory: 200Gi
+      # Total memory requests: max 200 GiB.
+    limits.cpu: "200"
+      # Total CPU limits: max 200 cores (burstable slack above requests).
+    limits.memory: 400Gi
+    pods: "500"
+      # Max 500 pods in this namespace. Prevents API server overload.
+    services: "50"
+    services.loadbalancers: "5"
+      # Limit expensive cloud load balancers per namespace.
+    persistentvolumeclaims: "100"
+      # Limit PVCs to control cloud disk costs.
+    requests.storage: "10Ti"
+      # Total storage requests across all PVCs: max 10 TiB.
+    count/deployments.apps: "50"
+      # Max 50 Deployment objects. Governance control.
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+    # Container-level defaults and bounds
+    - type: Container
+      default:
+        # Default LIMIT if container doesn't specify one.
+        # Without this: container with no limits = BestEffort (evicted first).
+        cpu: "1"
+        memory: 512Mi
+      defaultRequest:
+        # Default REQUEST if container doesn't specify one.
+        # The scheduler uses this for placement decisions.
+        cpu: 100m
+        memory: 128Mi
+      max:
+        # Absolute maximum any single container can request.
+        # Prevents one container from requesting 128 CPUs.
+        cpu: "8"
+        memory: 16Gi
+      min:
+        # Minimum any single container must request.
+        # Prevents zero-request BestEffort containers.
+        cpu: 50m
+        memory: 64Mi
+    # PVC-level bounds
+    - type: PersistentVolumeClaim
+      max:
+        storage: 1Ti
+          # No single PVC can request more than 1 TiB.
+          # Prevents accidental multi-TiB PVC creation.
+      min:
+        storage: 1Gi
+
+
+---
+# ============================================================
+# SECTION 5: Pod Security Standards
+# ============================================================
+# Pod Security Standards (PSS) replaced PodSecurityPolicy in K8s 1.25.
+# Enforced at the NAMESPACE level via labels.
+#
+# Three security profiles:
+#   Privileged: no restrictions (use for system namespaces like kube-system)
+#   Baseline:   prevents known privilege escalations. Disallows:
+#                 - hostNetwork, hostPID, hostIPC
+#                 - privileged containers
+#                 - hostPath volumes
+#                 - adding dangerous capabilities (NET_ADMIN, SYS_ADMIN)
+#   Restricted: hardened. Adds to Baseline:
+#                 - must run as non-root
+#                 - must drop ALL capabilities
+#                 - read-only root filesystem encouraged
+#                 - no allowPrivilegeEscalation
+#                 - seccompProfile must be set
+#
+# Enforcement modes (applied per namespace via labels):
+#   enforce: reject pods that violate the policy
+#   audit:   allow pods but log violations (great for migration)
+#   warn:    allow pods but show warnings in kubectl output
+#
+# Migration strategy:
+#   1. Start with warn + audit mode to see violations without breaking anything
+#   2. Fix all violated workloads (add runAsNonRoot, drop capabilities, etc.)
+#   3. Switch to enforce mode
+#
+# Shell: label a namespace to enforce baseline
+#   kubectl label namespace production \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/enforce-version=v1.29 \
+#     pod-security.kubernetes.io/audit=restricted \
+#     pod-security.kubernetes.io/warn=restricted
+
+# Compliant pod spec (satisfies Restricted profile):
+# spec:
+#   securityContext:
+#     runAsNonRoot: true          # Pod must run as non-root user
+#     runAsUser: 1000             # UID 1000 (not 0/root)
+#     runAsGroup: 3000
+#     fsGroup: 2000               # All mounted volumes owned by group 2000
+#     seccompProfile:
+#       type: RuntimeDefault      # Use containerd's default seccomp profile
+#   containers:
+#     - name: api
+#       securityContext:
+#         allowPrivilegeEscalation: false  # Cannot gain more privileges than parent
+#         readOnlyRootFilesystem: true     # Attacker can't write to container FS
+#         capabilities:
+#           drop: [ALL]            # Drop ALL Linux capabilities
+#           add: []                # Don't add any back (most apps need none)
+
+
+# ============================================================
+# SECTION 6: GitOps with ArgoCD
+# ============================================================
+# GitOps principle: git is the single source of truth for cluster state.
+#   - All K8s manifests live in git
+#   - ArgoCD watches git and syncs the cluster to match
+#   - NO manual kubectl apply to production (enforced by RBAC)
+#   - Audit trail: every change has a git commit, author, PR review
+#   - Rollback = git revert (instant, reliable)
+#
+# ArgoCD Architecture:
+#   - ArgoCD runs in the cluster (argocd namespace)
+#   - Application CR: defines "watch this git repo/path, sync to this cluster/namespace"
+#   - ArgoCD syncs on git push OR on a configurable schedule
+#   - Sync policy: manual (human approves sync) or automatic (auto-sync)
+#
+# Installation:
+#   kubectl create namespace argocd
+#   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+#   OR (preferred in production):
+#   helm install argocd argo/argo-cd --namespace argocd --values argocd-values.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-server-production
+  namespace: argocd
+    # ArgoCD Applications always live in the argocd namespace.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+      # Cascade delete: when this Application is deleted, ArgoCD
+      # deletes all K8s resources it created. Remove this finalizer
+      # if you want to delete the ArgoCD app without removing resources.
+spec:
+  project: production
+    # ArgoCD Projects scope what repos/clusters/namespaces an App can use.
+    # Prevents dev team from accidentally deploying to production namespace.
+  source:
+    repoURL: https://github.com/mycompany/k8s-manifests
+    targetRevision: main
+      # The git branch/tag/commit to sync from.
+      # In production: pin to a specific tag (v1.4.2) or use main with PR gating.
+    path: environments/production/api-server
+      # Directory within the repo containing the K8s manifests.
+      # ArgoCD will apply everything in this directory recursively.
+    # Optional: Helm source
+    # helm:
+    #   valueFiles: [values.yaml, values-production.yaml]
+    #   parameters:
+    #     - name: image.tag
+    #       value: v2.1.0
+  destination:
+    server: https://kubernetes.default.svc
+      # The in-cluster K8s API endpoint (ArgoCD managing its own cluster).
+      # For remote clusters: use the cluster's external API endpoint.
+    namespace: production
+  syncPolicy:
+    automated:
+      prune: true
+        # Remove K8s resources that no longer exist in git.
+        # Without this: old Deployments and Services linger after deletion from git.
+      selfHeal: true
+        # If someone manually edits K8s objects (drift), ArgoCD reverts them.
+        # This enforces git as the only source of truth.
+    syncOptions:
+      - CreateNamespace=true
+        # Create the destination namespace if it doesn't exist.
+      - PrunePropagationPolicy=foreground
+        # Wait for dependent resources to be deleted before deleting parents.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+          # Exponential backoff: retry failed syncs 5 times with backoff.
+  ignoreDifferences:
+    # Some controllers modify fields after deployment (e.g., HPA sets replicas).
+    # Ignore these fields to prevent ArgoCD from reverting them.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+          # HPA manages replica count — don't let ArgoCD overwrite it.
+
+
+---
+# ============================================================
+# SECTION 7: Monitoring Stack
+# ============================================================
+# kube-prometheus-stack Helm chart installs:
+#   - Prometheus (scrapes metrics, stores TSDB)
+#   - Grafana (dashboards, alerting UI)
+#   - AlertManager (routes alerts to PagerDuty/Slack/email)
+#   - prometheus-node-exporter (node CPU/mem/disk metrics)
+#   - kube-state-metrics (K8s object metrics: pod counts, deployment status)
+#   - Prometheus Operator (manages Prometheus/Alertmanager CRDs)
+#
+# Installation:
+#   helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring \
+#     --create-namespace \
+#     --values monitoring-values.yaml
+#
+# ServiceMonitor: tells Prometheus to scrape a specific Service.
+# This replaces manual scrape_config entries.
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api-server-monitor
+  namespace: monitoring
+    # Must be in the namespace Prometheus is configured to watch.
+    # Or set Prometheus to watch all namespaces.
+  labels:
+    release: kube-prometheus-stack
+      # Prometheus Operator's selector — it only manages ServiceMonitors
+      # with this label (configurable via prometheusSelector in Prometheus CR).
+spec:
+  selector:
+    matchLabels:
+      app: api-server
+        # Find the Service with this label in the target namespace.
+  namespaceSelector:
+    matchNames: [production]
+      # Look for the Service in the production namespace.
+  endpoints:
+    - port: http
+        # Port name from the Service spec (not number).
+      path: /metrics
+      interval: 15s
+        # Scrape every 15 seconds. Default is 30s.
+        # Don't go below 10s — Prometheus memory grows with cardinality.
+      scheme: http
+      honorLabels: false
+        # false: Prometheus labels take precedence over app-exposed labels.
+        # Prevents cardinality explosion from user-controlled labels.
+
+---
+# PrometheusRule: define alerts as code (stored in git, reviewed like code).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: api-server-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: api-server
+      interval: 30s
+        # How often to evaluate these rules. 30s is standard.
+      rules:
+        - alert: APIServerHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="api-server",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="api-server"}[5m])) > 0.05
+            # Alert when 5xx error rate exceeds 5% over 5 minutes.
+          for: 2m
+            # Condition must be true for 2 minutes before firing.
+            # Prevents alert storms from brief spikes.
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "API server error rate is {{ $value | humanizePercentage }}"
+            description: |
+              The HTTP 5xx error rate for api-server has exceeded 5%
+              for the past 2 minutes. Current rate: {{ $value }}.
+              Runbook: https://runbooks.company.io/api-high-error-rate
+        - alert: APIServerHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{job="api-server"}[5m])) by (le)
+            ) > 1.0
+            # Alert when p99 latency exceeds 1 second.
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "API p99 latency is {{ $value }}s"
+
+
+---
+# ============================================================
+# SECTION 8: Log Aggregation with Fluent Bit + Loki
+# ============================================================
+# Fluent Bit: lightweight log forwarder (Rust core, tiny memory footprint).
+#   Runs as DaemonSet — one pod per node, reads from /var/log/containers/*.log.
+#   Parses, enriches with K8s metadata (pod name, namespace, labels), forwards.
+#
+# Alternatives:
+#   Fluentd: older, Ruby-based, heavier — more plugins but more RAM.
+#   Loki: log storage + query (like Prometheus for logs). Grafana-native.
+#   Elasticsearch: full-text search, more powerful but expensive at scale.
+#
+# Architecture: Fluent Bit DaemonSet → Loki → Grafana (LogQL queries)
+#
+# Fluent Bit Helm install:
+#   helm install fluent-bit fluent/fluent-bit \
+#     --namespace logging \
+#     --values fluent-bit-values.yaml
+
+# Fluent Bit DaemonSet runs on every node — collect logs from all pods.
+# The key values.yaml config:
+#   config:
+#     outputs: |
+#       [OUTPUT]
+#           Name  loki
+#           Match *
+#           Host  loki.monitoring.svc.cluster.local
+#           Port  3100
+#           Labels job=fluentbit, namespace=$kubernetes['namespace_name']
+#           Auto_Kubernetes_Labels On
+#
+# Query logs in Grafana with LogQL:
+#   {namespace="production", app="api-server"} |= "ERROR"
+#   {namespace="production"} | json | level="error" | latency > 1000
+
+
+# ============================================================
+# SECTION 9: Incident Response Runbook
+# ============================================================
+# When something breaks in production, follow this sequence:
+
+# --- Step 1: Get the big picture ---
+# What's happening right now across the cluster:
+# kubectl get pods -n production --sort-by=.status.startTime | tail -20
+# kubectl get events --sort-by=.lastTimestamp -n production | tail -30
+
+# --- Step 2: Identify failing pods ---
+# kubectl get pods -n production | grep -v Running | grep -v Completed
+# Common statuses to investigate:
+#   CrashLoopBackOff  → app crashes on start, check logs
+#   OOMKilled         → memory limit exceeded, increase limits or fix leak
+#   Pending           → can't be scheduled, check node resources / taints
+#   ImagePullBackOff  → bad image tag or registry auth failure
+#   Terminating       → pod stuck deleting, may need force delete
+
+# --- Step 3: Inspect a specific failing pod ---
+# kubectl describe pod <pod-name> -n production
+#   → Check: Events section (scheduling failures, image pulls, volume mounts)
+#   → Check: Conditions (PodScheduled, Initialized, ContainersReady, Ready)
+#   → Check: Container state (last state, exit code, restart count)
+
+# --- Step 4: Read logs ---
+# kubectl logs <pod-name> -n production                    # current logs
+# kubectl logs <pod-name> -n production --previous         # logs from before the last restart
+# kubectl logs <pod-name> -n production -c <container>     # specific container in pod
+# kubectl logs <pod-name> -n production --tail=100 -f      # follow last 100 lines
+
+# --- Step 5: Shell into a running pod (if it's not crash-looping) ---
+# kubectl exec -it <pod-name> -n production -- /bin/sh
+# Inside: check env vars, network connectivity, disk space
+# curl http://postgres:5432  (check DB connectivity)
+# df -h                       (check disk usage)
+# cat /etc/resolv.conf        (check DNS config)
+
+# --- Step 6: Check resource usage ---
+# kubectl top pods -n production --sort-by=memory
+# kubectl top nodes
+# Check for OOM or CPU throttling patterns
+
+# --- Step 7: Check the deployment / rollout ---
+# kubectl rollout status deployment/api-server -n production
+# kubectl rollout history deployment/api-server -n production
+# If a recent rollout is bad:
+# kubectl rollout undo deployment/api-server -n production
+# kubectl rollout undo deployment/api-server --to-revision=3 -n production
+
+# --- Step 8: Check ingress / service routing ---
+# kubectl get ingress -n production
+# kubectl describe ingress api-ingress -n production
+# kubectl get endpoints api-server-svc -n production
+#   → If Endpoints shows <none>, the service selector doesn't match pod labels
+
+# --- Step 9: Drain a bad node safely (respects PDBs) ---
+# kubectl cordon <node-name>             # stop scheduling new pods here
+# kubectl drain <node-name> \
+#   --ignore-daemonsets \               # DaemonSets run everywhere, skip them
+#   --delete-emptydir-data \            # allow draining pods with emptyDir
+#   --grace-period=60 \                 # give pods 60s to shutdown gracefully
+#   --timeout=5m                        # fail if drain takes > 5 minutes
+# After fixing the node:
+# kubectl uncordon <node-name>          # allow scheduling again
+
+# --- Multi-cluster: check which cluster is having issues ---
+# kubectl config get-contexts           # list all configured clusters
+# kubectl config use-context prod-us-east-1  # switch to US cluster
+# kubectl config use-context prod-eu-west-1  # switch to EU cluster

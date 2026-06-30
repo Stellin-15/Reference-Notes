@@ -1,0 +1,626 @@
+# =============================================================================
+# WHAT: Complete Production CI/CD Pipeline for a Python FastAPI Microservice
+# WHY:  A production pipeline is the engineering system that turns code into
+#       running software safely, automatically, and with confidence.
+#       This is the full picture: lint → test → build → deploy → monitor → rollback.
+# LEVEL: Senior / Architect — production systems at scale
+# =============================================================================
+#
+# CONCEPT OVERVIEW
+# ----------------
+# This pipeline protects "main" and production from bad code via:
+#   PR Pipeline:   Must pass before merge (lint, unit tests, integration, security, build)
+#   Main Pipeline: Build → staging deploy → smoke test → manual gate → prod canary → monitor
+#
+# TWO KEY PRINCIPLES:
+#   1. Fast feedback: developers learn about failures in minutes, not hours
+#   2. Automated safety nets: broken prod = automatic rollback, no human needed at 3am
+#
+# PRODUCTION USE CASE
+# -------------------
+# FastAPI microservice with: Postgres, runs in Kubernetes (EKS), deployed via ArgoCD.
+# 20 engineers, 50+ PRs/week, 3-5 prod deploys/day.
+# SLA: 99.9% uptime (~8.7 hours downtime/year budget).
+#
+# COMMON MISTAKES
+# ---------------
+# - No concurrency control → two deploys running simultaneously → race conditions
+# - No timeouts → hung job blocks the queue for hours
+# - No smoke tests after deploy → bad deploy stays up until users report it
+# - No automatic rollback → incident response requires human at 3am
+# - Canceling prod deploy mid-run → leaves cluster in undefined state
+# =============================================================================
+
+name: production-pipeline
+
+on:
+  push:
+    branches:
+      - main               # Full pipeline: test → build → staging → prod
+  pull_request:
+    branches:
+      - main               # PR pipeline: test only, no deploy
+
+# =============================================================================
+# CONCURRENCY: Prevent race conditions between simultaneous runs
+# =============================================================================
+# Two scenarios:
+#   1. Fast PR iterations: cancel stale run when new commit pushed
+#      (no point testing commit N-1 when N is already queued)
+#   2. Production deploys: NEVER cancel a running prod deploy
+#      (canceling mid-deploy leaves the cluster in a partial state)
+# =============================================================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # For pull_request events: cancel previous run = true (fast feedback)
+  # For push to main: cancel = false (never cancel in-progress deploys)
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}       # ghcr.io/myorg/myapp
+  PYTHON_VERSION: '3.12'
+  KUBERNETES_NAMESPACE_STAGING: myapp-staging
+  KUBERNETES_NAMESPACE_PROD: myapp-production
+
+jobs:
+  # =============================================================================
+  # JOB 1: LINT
+  # =============================================================================
+  # Catches style issues, type errors, and security anti-patterns before
+  # running expensive tests. Runs in parallel with nothing (first job).
+  # FAST: should complete in under 60 seconds.
+  # =============================================================================
+  lint:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10              # Never let lint hang; something is very wrong if it does
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip                 # Cache pip installs for speed (saves ~30s/run)
+
+      - name: Install lint dependencies
+        run: |
+          pip install ruff mypy bandit
+          pip install -r requirements.txt
+
+      - name: Ruff — linting and formatting check
+        run: |
+          ruff check .               # Check for style/lint errors
+          ruff format --check .      # Check formatting without modifying files
+          # Ruff replaces: flake8, isort, pyupgrade, and many others
+          # Configure in pyproject.toml: [tool.ruff] line-length = 100
+
+      - name: Mypy — static type checking
+        run: |
+          mypy src/                  # Type-check the source directory
+          # FastAPI + mypy = catches entire categories of bugs:
+          # wrong Pydantic model fields, missing Optional checks, etc.
+          # Configure in pyproject.toml: [tool.mypy] strict = true
+
+      - name: Bandit — Python security linter
+        run: |
+          bandit -r src/ \
+            -f json \
+            -o bandit-report.json \
+            --severity-level medium  # Fail on MEDIUM and HIGH findings
+          # Catches: hardcoded passwords, SQL injection, shell injection,
+          # use of assert in security code, weak crypto, etc.
+
+      - name: Upload bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # =============================================================================
+  # JOB 2: UNIT TESTS
+  # =============================================================================
+  # Unit tests: isolated, no external dependencies, fast.
+  # Coverage report gates PRs — must maintain ≥80% line coverage.
+  # Runs in parallel with lint.
+  # =============================================================================
+  unit-tests:
+    name: Unit tests with coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/unit/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-fail-under=80 \   # Fail if line coverage drops below 80%
+            -v \
+            --tb=short \
+            -n auto \               # pytest-xdist: parallel test execution (uses all CPUs)
+            --junitxml=test-results.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results.xml
+
+  # =============================================================================
+  # JOB 3: INTEGRATION TESTS
+  # =============================================================================
+  # Integration tests: test the app with REAL external dependencies (Postgres).
+  # GitHub Actions "services" spin up Docker containers for the test run.
+  # Runs in parallel with unit-tests and lint.
+  # =============================================================================
+  integration-tests:
+    name: Integration tests (with Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # GitHub Actions spins up this container before the job starts.
+      # The service is accessible via hostname "postgres" within the job.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        # Health check: wait for Postgres to be ready before running tests
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432               # Expose on localhost so tests can connect
+
+      # Redis for testing cache layer
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        run: alembic upgrade head    # Run Alembic migrations against test DB
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          REDIS_URL: redis://localhost:6379
+          ENVIRONMENT: test
+        run: |
+          pytest tests/integration/ \
+            -v \
+            --tb=short \
+            --junitxml=integration-test-results.xml
+
+  # =============================================================================
+  # JOB 4: SECURITY SCAN
+  # =============================================================================
+  # Dependency vulnerabilities and container CVEs. Runs in parallel.
+  # Fail on CRITICAL findings. On PR: just report HIGH.
+  # =============================================================================
+  security-scan:
+    name: Security — dependencies and container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pip-audit — dependency vulnerability scan
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --fail-on CRITICAL
+
+      - name: Build image for scanning
+        run: docker build -t ${{ env.IMAGE_NAME }}:scan .
+
+      - name: Trivy — container image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  # =============================================================================
+  # JOB 5: BUILD (PR — verify only, don't push)
+  # =============================================================================
+  # On PRs: build the Docker image to verify Dockerfile is valid.
+  # Don't push: no point storing an unmerged image in the registry.
+  # =============================================================================
+  build-pr:
+    name: Build Docker image (PR — verify only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'   # Only run on PRs
+    needs: [lint, unit-tests, security-scan]   # All checks must pass first
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        # Buildx enables: BuildKit, multi-platform builds, layer caching
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false                # Don't push on PRs
+          tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha      # Use GitHub Actions cache for layers
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+
+  # =============================================================================
+  # JOB 6: BUILD AND PUSH (main branch only)
+  # =============================================================================
+  # After merge to main: build, tag with SHA, push to GHCR.
+  # SHA tag = immutable reference. Never use "latest" in production.
+  # SHA tells you EXACTLY what commit is running in each cluster.
+  # =============================================================================
+  build-and-push:
+    name: Build and push to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, unit-tests, integration-tests, security-scan]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write              # For OIDC + image signing
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      short-sha: ${{ steps.vars.outputs.short-sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image variables
+        id: vars
+        run: echo "short-sha=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Tag with full SHA (primary, immutable)
+            type=sha,format=long,prefix=sha-
+            # Tag with short SHA (convenient)
+            type=sha,format=short,prefix=
+            # Tag with semver if a version tag was pushed
+            type=semver,pattern={{version}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Multi-platform: build for amd64 and arm64 (Graviton/Apple Silicon runners)
+          platforms: linux/amd64,linux/arm64
+
+  # =============================================================================
+  # JOB 7: DEPLOY TO STAGING
+  # =============================================================================
+  # Deploy new image to staging via kustomize image override.
+  # Wait for rollout. Run smoke tests. Auto-rollback if smoke tests fail.
+  # =============================================================================
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build-and-push]
+    environment: staging            # Uses "staging" GitHub Environment
+    outputs:
+      smoke-test-status: ${{ steps.smoke-test.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig for staging cluster
+        run: aws eks update-kubeconfig --region us-east-1 --name staging-cluster
+
+      - name: Deploy to staging via kustomize
+        run: |
+          # Update image tag in kustomization.yaml
+          cd k8s/overlays/staging
+          kustomize edit set image myapp=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.short-sha }}
+          kubectl apply -k .
+
+      - name: Wait for rollout to complete
+        run: |
+          kubectl rollout status deployment/myapp \
+            -n ${{ env.KUBERNETES_NAMESPACE_STAGING }} \
+            --timeout=10m
+          # Fails if rollout doesn't complete in 10 minutes (crashloop, OOMKill, etc.)
+
+      - name: Smoke tests — verify staging deployment
+        id: smoke-test
+        run: |
+          STAGING_URL="https://staging.myapp.example.com"
+
+          # Wait for ingress to be ready
+          sleep 15
+
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "SMOKE TEST FAILED: /health returned $STATUS"
+            exit 1
+          fi
+
+          # Authenticated endpoint check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.STAGING_SMOKE_TEST_TOKEN }}" \
+            "$STAGING_URL/api/v1/status")
+          if [ "$STATUS" != "200" ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "SMOKE TEST FAILED: /api/v1/status returned $STATUS"
+            exit 1
+          fi
+
+          echo "status=passed" >> $GITHUB_OUTPUT
+          echo "All smoke tests passed"
+
+      - name: ROLLBACK staging if smoke tests failed
+        if: failure()
+        run: |
+          echo "Smoke tests failed — rolling back staging deployment"
+          kubectl rollout undo deployment/myapp -n ${{ env.KUBERNETES_NAMESPACE_STAGING }}
+          kubectl rollout status deployment/myapp -n ${{ env.KUBERNETES_NAMESPACE_STAGING }} --timeout=5m
+          echo "Rollback complete"
+
+  # =============================================================================
+  # REUSABLE WORKFLOW: Deploy step extracted for DRY principle
+  # =============================================================================
+  # If you deploy the same service to 5 environments, extract the deploy job
+  # into a reusable workflow. Call it with "uses: ./.github/workflows/deploy.yml"
+  # =============================================================================
+
+  # =============================================================================
+  # JOB 8: MANUAL APPROVAL GATE FOR PRODUCTION
+  # =============================================================================
+  # The "environment: production" setting REQUIRES manual approval before this
+  # job runs (configured in GitHub Settings > Environments > production > Required reviewers).
+  # This gives a human the chance to:
+  #   - Review staging smoke test results
+  #   - Check monitoring dashboards
+  #   - Confirm deploy window (not Friday afternoon)
+  # =============================================================================
+  await-approval:
+    name: Await manual approval for production
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440          # 24 hours — deployment can wait for business hours
+    needs: [deploy-staging]
+    if: needs.deploy-staging.outputs.smoke-test-status == 'passed'
+    environment: production        # Pauses here until a reviewer approves in GitHub UI
+    steps:
+      - name: Approval gate
+        run: echo "Production deployment approved. Proceeding with canary rollout."
+
+  # =============================================================================
+  # JOB 9: CANARY DEPLOY TO PRODUCTION
+  # =============================================================================
+  # 1. Deploy new image to canary Deployment (10% of pods)
+  # 2. Set ingress weight to 10%
+  # 3. Monitor Prometheus error rate for 5 minutes
+  # 4. If OK: promote to 100%
+  # 5. If bad: rollback canary to 0%, no impact to stable
+  # =============================================================================
+  deploy-production-canary:
+    name: Canary deploy to production (10% traffic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [await-approval, build-and-push]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PROD_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Update kubeconfig for production cluster
+        run: aws eks update-kubeconfig --region us-east-1 --name prod-cluster
+
+      - name: Deploy canary pods
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.short-sha }}"
+          kubectl set image deployment/myapp-canary myapp=$IMAGE \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }}
+          kubectl rollout status deployment/myapp-canary \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }} \
+            --timeout=10m
+
+      - name: Route 10% traffic to canary
+        run: |
+          kubectl patch ingress myapp-canary \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }} \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"10"}}}'
+          echo "10% of production traffic now routed to canary"
+
+      - name: Monitor canary error rate for 5 minutes
+        run: |
+          PROMETHEUS_URL="${{ secrets.PROMETHEUS_URL }}"
+          echo "Monitoring for 5 minutes (10 checks × 30s interval)..."
+          FAILED=0
+          for i in $(seq 1 10); do
+            sleep 30
+            ERROR_RATE=$(curl -sf "${PROMETHEUS_URL}/api/v1/query" \
+              --data-urlencode 'query=100 * sum(rate(http_requests_total{status=~"5..",deployment="myapp-canary"}[2m])) / sum(rate(http_requests_total{deployment="myapp-canary"}[2m]))' \
+              | jq -r '.data.result[0].value[1] // "0"')
+            LATENCY=$(curl -sf "${PROMETHEUS_URL}/api/v1/query" \
+              --data-urlencode 'query=histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{deployment="myapp-canary"}[2m]))' \
+              | jq -r '.data.result[0].value[1] // "0"')
+            echo "Check $i/10 — Error rate: ${ERROR_RATE}%, p99 latency: ${LATENCY}s"
+            if (( $(echo "$ERROR_RATE > 1.0" | bc -l) )); then
+              echo "ERROR RATE EXCEEDED 1% (actual: ${ERROR_RATE}%) — triggering rollback"
+              FAILED=1
+              break
+            fi
+            if (( $(echo "$LATENCY > 2.0" | bc -l) )); then
+              echo "P99 LATENCY EXCEEDED 2s (actual: ${LATENCY}s) — triggering rollback"
+              FAILED=1
+              break
+            fi
+          done
+          if [ "$FAILED" = "1" ]; then exit 1; fi
+          echo "Canary monitoring complete. All metrics healthy."
+
+      - name: Promote canary to 100% (complete rollout)
+        if: success()
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.short-sha }}"
+          # Update the stable Deployment with the new image
+          kubectl set image deployment/myapp-stable myapp=$IMAGE \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }}
+          kubectl rollout status deployment/myapp-stable \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }} \
+            --timeout=15m
+          # Remove canary traffic weight (stable now has new version)
+          kubectl patch ingress myapp-canary \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }} \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+          echo "Production rollout complete. 100% traffic on new version."
+
+      - name: ROLLBACK canary on failure
+        if: failure()
+        run: |
+          echo "Canary failed — rolling back to zero traffic"
+          kubectl patch ingress myapp-canary \
+            -n ${{ env.KUBERNETES_NAMESPACE_PROD }} \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+          kubectl rollout undo deployment/myapp-canary -n ${{ env.KUBERNETES_NAMESPACE_PROD }}
+          echo "Canary rollback complete. Stable version unaffected."
+
+  # =============================================================================
+  # JOB 10: NOTIFICATIONS
+  # =============================================================================
+  # Notify the team on success AND failure. Include:
+  #   - What was deployed (image SHA)
+  #   - Who triggered it (github.actor)
+  #   - Link to the deployment (GitHub Actions run URL)
+  #   - Link to monitoring dashboard (Grafana)
+  # =============================================================================
+  notify:
+    name: Notify team on Slack
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-production-canary]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Notify success
+        if: needs.deploy-production-canary.result == 'success'
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Production deploy SUCCESS",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  {"title": "Service", "value": "myapp", "short": true},
+                  {"title": "Version", "value": "${{ needs.build-and-push.outputs.short-sha }}", "short": true},
+                  {"title": "Deployed by", "value": "${{ github.actor }}", "short": true},
+                  {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+                ]
+              }]
+            }
+
+      - name: Notify failure
+        if: needs.deploy-production-canary.result == 'failure'
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Production deploy FAILED — automatic rollback triggered",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  {"title": "Service", "value": "myapp", "short": true},
+                  {"title": "Failed version", "value": "${{ needs.build-and-push.outputs.short-sha }}", "short": true},
+                  {"title": "Action required", "value": "Check logs and fix before re-deploying", "short": false},
+                  {"title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+                ]
+              }]
+            }

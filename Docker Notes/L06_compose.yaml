@@ -1,0 +1,418 @@
+# ============================================================
+# L06: Docker Compose — Production-Grade Setup
+# ============================================================
+# WHAT: A complete docker-compose.yaml for a production web app
+#       with nginx, FastAPI, Celery worker, Postgres, Redis,
+#       and Flower (Celery monitoring dashboard).
+# WHY:  docker-compose is the standard way to define multi-
+#       container applications declaratively. In production you
+#       use the same file (or a production override) with
+#       Docker Swarm or convert it for Kubernetes via Kompose.
+# LEVEL: Advanced
+# ============================================================
+# CONCEPT OVERVIEW:
+#   Compose files describe SERVICES (containers), NETWORKS
+#   (virtual switches), and VOLUMES (persistent storage) as a
+#   single unit. On `docker compose up`, Docker creates all
+#   resources in dependency order and wires them together.
+#
+# PRODUCTION USE CASE:
+#   This exact pattern (or something very close) runs most
+#   small-to-medium SaaS products: an nginx reverse proxy
+#   terminates TLS and routes to a Python API, background
+#   tasks run in Celery workers, Postgres stores relational
+#   data, Redis is the message broker AND cache.
+#
+# COMMON MISTAKES:
+#   - Using `depends_on` without healthchecks: Compose starts
+#     the CONTAINER but the DB process inside takes seconds to
+#     become ready. Your API crashes on startup. Fix: condition:
+#     service_healthy.
+#   - Hardcoding secrets in the compose file (committed to git).
+#     Use env_file pointing to a .env file that is .gitignored.
+#   - Exposing database ports to the host (0.0.0.0:5432:5432).
+#     Anyone who can reach the host can connect to your DB.
+#   - Not setting resource limits: one OOM-killed container
+#     can starve all others on the same host.
+#   - Using restart: always — it will restart even on `docker
+#     compose stop`. Use unless-stopped instead.
+# ============================================================
+
+# ------------------------------------------------------------
+# VERSION
+# ------------------------------------------------------------
+# version "3.9" targets the Compose file format spec v3.9.
+# This determines which keys are valid. v3.x uses the "deploy"
+# key (Swarm-aware). v2.x used "mem_limit" directly on services.
+# Docker Compose v2 CLI ignores the `version` key but it is
+# still good practice to include for clarity and compatibility
+# with older tooling.
+version: "3.9"
+
+# ============================================================
+# SERVICES
+# ============================================================
+services:
+
+  # ----------------------------------------------------------
+  # NGINX — Reverse Proxy / TLS Terminator
+  # ----------------------------------------------------------
+  # nginx sits at the front. It terminates TLS (via certbot
+  # or pre-mounted certs), handles static files, and proxies
+  # /api/* to the FastAPI service. Only nginx is on public ports.
+  web:
+    image: nginx:1.25-alpine      # pinned tag — never use :latest
+                                  # in production. :latest is non-
+                                  # deterministic across deploys.
+    ports:
+      - "80:80"                   # HTTP (redirects to HTTPS)
+      - "443:443"                 # HTTPS
+      # NOTE: Only web is exposed externally. Postgres and Redis
+      # have NO ports entry — they are reachable only on the
+      # internal backend network, never from outside the host.
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro   # config: read-only
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro            # vhost configs
+      - certbot-certs:/etc/letsencrypt:ro              # TLS certs volume
+      - static-files:/var/www/static:ro                # served directly by nginx
+    networks:
+      - frontend    # talks to the outside world
+      - backend     # proxies to the api service
+    depends_on:
+      api:
+        condition: service_healthy   # don't start until api passes healthcheck
+    restart: unless-stopped   # restart if it crashes, but NOT on `docker compose stop`
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"    # rotate when log file hits 10 MB
+        max-file: "5"      # keep 5 rotated files (50 MB max total)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s    # grace period — don't fail healthcheck during startup
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"          # max 50% of one CPU core
+          memory: 128M         # hard RAM cap
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ----------------------------------------------------------
+  # API — Python FastAPI Application
+  # ----------------------------------------------------------
+  # `build` instead of `image`: Compose builds from the local
+  # Dockerfile. Use `image` when pulling from a registry (CI/CD
+  # typically builds and pushes; compose then pulls in prod).
+  api:
+    build:
+      context: ./api                # directory containing Dockerfile
+      dockerfile: Dockerfile        # explicit is better than implicit
+      target: production            # multi-stage build target (not dev stage)
+      args:
+        - BUILD_VERSION=${BUILD_VERSION:-dev}   # passed to ARG in Dockerfile
+    image: myapp/api:${IMAGE_TAG:-latest}   # tag built image for registry push
+    # env_file is SAFER than environment for secrets.
+    # The .env file is .gitignored so secrets never hit version control.
+    # `environment` keys are visible in `docker inspect` output.
+    env_file:
+      - .env.production       # DB_PASSWORD, SECRET_KEY, SENTRY_DSN, etc.
+    environment:
+      # Non-secret runtime config CAN go here — it's fine in VCS.
+      - PYTHONUNBUFFERED=1      # ensures stdout/stderr are not buffered
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - CELERY_BROKER_URL=redis://redis:6379/0   # redis hostname = service name
+      - DATABASE_URL=postgresql://app:${DB_PASSWORD}@postgres:5432/appdb
+    networks:
+      - backend    # api does NOT need to be on the frontend network
+    depends_on:
+      postgres:
+        condition: service_healthy   # wait for DB to accept connections
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # FastAPI exposes /health that returns 200 when the app and DB
+      # connection pool are both ready.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s    # FastAPI + SQLAlchemy startup takes a few seconds
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "10"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    # Secrets: production credential files injected at /run/secrets/
+    # These are Docker Swarm secrets (see `secrets:` section at bottom).
+    secrets:
+      - db_password
+      - secret_key
+
+  # ----------------------------------------------------------
+  # WORKER — Celery Background Task Worker
+  # ----------------------------------------------------------
+  # Celery workers consume tasks from Redis (the broker) and
+  # execute them. They share the same codebase as the API but
+  # run a different entrypoint command.
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: production
+    command: celery -A app.celery worker --loglevel=info --concurrency=4
+    env_file:
+      - .env.production
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DATABASE_URL=postgresql://app:${DB_PASSWORD}@postgres:5432/appdb
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"      # workers can be CPU-intensive
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    secrets:
+      - db_password
+
+  # ----------------------------------------------------------
+  # FLOWER — Celery Monitoring Dashboard
+  # ----------------------------------------------------------
+  # Flower is a web UI for monitoring Celery: task history,
+  # worker status, queue depths. Should NOT be public-facing —
+  # it's on an internal port or behind auth.
+  # Uses `profiles` so it only starts when explicitly requested.
+  flower:
+    image: mher/flower:2.0
+    command: celery flower --broker=redis://redis:6379/0 --port=5555
+    environment:
+      - FLOWER_BASIC_AUTH=${FLOWER_USER}:${FLOWER_PASSWORD}
+    ports:
+      - "127.0.0.1:5555:5555"   # bind to loopback ONLY — not public
+    networks:
+      - backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - monitoring    # only starts with: docker compose --profile monitoring up
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  # ----------------------------------------------------------
+  # POSTGRES — Relational Database
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine   # alpine: smaller image, same functionality
+    env_file:
+      - .env.production
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=app
+      # POSTGRES_PASSWORD_FILE tells postgres to read the password
+      # from a file (Docker secret) instead of an env var.
+      # Env vars are visible in `docker inspect` and process listings.
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data    # ALL DB files live here
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+        # init.sql runs ONCE on first startup (empty volume).
+        # Use for schema creation, extension enabling, etc.
+    networks:
+      - backend    # ONLY backend — no frontend exposure
+    # DO NOT add a `ports` entry here. The DB should NEVER be
+    # reachable from outside the Docker network.
+    healthcheck:
+      # pg_isready checks if Postgres is accepting connections.
+      # This is what condition: service_healthy waits for.
+      test: ["CMD-SHELL", "pg_isready -U app -d appdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s    # Postgres initialization can take time
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G       # Postgres uses RAM for shared_buffers
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    secrets:
+      - db_password
+
+  # ----------------------------------------------------------
+  # REDIS — Message Broker + Cache
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes           # AOF persistence: survive restarts
+      --appendfsync everysec     # flush to disk every second (balance)
+    env_file:
+      - .env.production
+    volumes:
+      - redisdata:/data           # AOF and RDB snapshots persist here
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M     # slightly above maxmemory to account for overhead
+        reservations:
+          memory: 128M
+
+  # ----------------------------------------------------------
+  # PGADMIN — Dev/Debug Profile Only
+  # ----------------------------------------------------------
+  # PgAdmin is a Postgres web UI. Useful in dev, dangerous in
+  # prod (another attack surface). Gated behind `dev` profile.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=dev@example.com
+      - PGADMIN_DEFAULT_PASSWORD=devpassword
+    ports:
+      - "127.0.0.1:5050:80"
+    networks:
+      - backend
+    depends_on:
+      - postgres
+    profiles:
+      - dev      # only starts with: docker compose --profile dev up
+    restart: "no"    # dev tool: don't auto-restart
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+
+# ============================================================
+# NETWORKS
+# ============================================================
+# Isolating services onto separate networks is defence-in-depth.
+#
+# frontend network: nginx + external traffic. Only web service
+#   is here (+ api so nginx can proxy to it).
+#
+# backend network: all internal services. Postgres and Redis
+#   are ONLY on backend — they are unreachable from frontend.
+#
+# Why this matters: if nginx is compromised, the attacker is on
+# the frontend network and cannot directly reach Postgres —
+# they'd have to pivot through the api service first.
+networks:
+  frontend:
+    driver: bridge     # default virtual switch
+    name: myapp_frontend
+  backend:
+    driver: bridge
+    name: myapp_backend
+    internal: false    # set `internal: true` to block internet access entirely
+
+
+# ============================================================
+# VOLUMES
+# ============================================================
+# All named volumes must be declared here. Docker creates them
+# on first `docker compose up`. They persist across `down` (but
+# NOT `down -v` which destroys volumes — DANGEROUS in prod).
+volumes:
+  pgdata:
+    driver: local
+    name: myapp_pgdata     # explicit name prevents compose-project prefix
+  redisdata:
+    driver: local
+    name: myapp_redisdata
+  certbot-certs:
+    driver: local
+    name: myapp_certbot_certs
+  static-files:
+    driver: local
+    name: myapp_static_files
+
+
+# ============================================================
+# SECRETS (Docker Swarm mode)
+# ============================================================
+# Docker secrets are the most secure way to handle credentials.
+# They are encrypted at rest and in transit (Swarm Raft log),
+# mounted as files in /run/secrets/<secret_name>.
+# In non-Swarm compose, secrets are bind-mounted from the host.
+#
+# Create a secret:
+#   echo "mypassword" | docker secret create db_password -
+# Or in compose (dev fallback using file):
+#   secrets:
+#     db_password:
+#       file: ./secrets/db_password.txt
+secrets:
+  db_password:
+    external: true    # secret already created via `docker secret create`
+  secret_key:
+    external: true

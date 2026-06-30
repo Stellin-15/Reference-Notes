@@ -1,0 +1,402 @@
+# =============================================================================
+# WHAT: ArgoCD and GitOps Principles
+# WHY:  Manual kubectl deploys don't scale, have no audit trail, and let
+#       config drift silently. GitOps makes git the single source of truth —
+#       every change is a PR, every deploy is auditable, drift is auto-corrected.
+# LEVEL: Senior / Architect — production systems at scale
+# =============================================================================
+#
+# CONCEPT OVERVIEW
+# ----------------
+# GitOps = operational model where git is the desired-state store.
+# Four principles (from Weaveworks, who coined the term):
+#   1. Declarative:    Desired state is expressed declaratively (YAML manifests)
+#   2. Versioned:      Desired state is stored in git (history, audit, rollback)
+#   3. Pulled:         Software agents pull and apply changes (not CI pushing)
+#   4. Continuous:     Agents continuously reconcile actual vs desired state
+#
+# ArgoCD is the most popular GitOps operator for Kubernetes.
+# It watches a git repo and syncs the cluster to match.
+#
+# PRODUCTION USE CASE
+# -------------------
+# 5 microservices, 2 environments (staging + prod), 3 clusters.
+# Without GitOps: 5 teams doing "kubectl apply" in different ways,
+# config drifts, nobody knows what's actually running.
+# With GitOps: one git repo is the truth, ArgoCD enforces it everywhere.
+#
+# COMMON MISTAKES
+# ---------------
+# - Putting secrets in git (even encrypted — use Vault or ESO instead)
+# - Using selfHeal in production without understanding it will override
+#   emergency manual fixes (disable selfHeal for prod hotfixes)
+# - Not using sync waves — DB migrations MUST run before the app starts
+# - Not setting resource limits in manifests (ArgoCD will sync them, K8s will OOM)
+# =============================================================================
+
+---
+# =============================================================================
+# ARGOCD APPLICATION: Core manifest defining what ArgoCD manages
+# =============================================================================
+# An Application is ArgoCD's CRD that links a git source to a K8s destination.
+# Think of it as: "Watch THIS git path → Apply to THAT cluster/namespace"
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp-staging
+  namespace: argocd              # ArgoCD resources live in the argocd namespace
+  finalizers:
+    # This finalizer ensures ArgoCD deletes all managed resources if the
+    # Application itself is deleted. Without it, deleting the Application
+    # leaves orphaned pods/services in the cluster.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: staging-project       # ArgoCD Project for RBAC scoping (see below)
+
+  source:
+    repoURL: https://github.com/myorg/k8s-manifests.git
+    targetRevision: main         # Can be branch, tag, or commit SHA
+                                 # PRODUCTION TIP: use tags (v1.3.0) not branches
+                                 # so prod always deploys an explicit known version
+    path: apps/myapp/overlays/staging   # Path within repo to Kustomize overlay
+
+    # If using Helm instead of Kustomize:
+    # chart: myapp
+    # helm:
+    #   valueFiles:
+    #     - values.yaml
+    #     - values-staging.yaml
+    #   parameters:
+    #     - name: image.tag
+    #       value: v1.3.0
+
+  destination:
+    server: https://kubernetes.default.svc   # In-cluster (same cluster ArgoCD runs in)
+    # For remote cluster: https://1.2.3.4 (cluster API endpoint registered with ArgoCD)
+    namespace: myapp-staging
+
+  syncPolicy:
+    automated:
+      prune: true        # Delete resources in cluster that are removed from git
+                         # Without this: old Deployments/ConfigMaps accumulate as ghost resources
+      selfHeal: true     # If someone does "kubectl edit" or "kubectl apply" manually,
+                         # ArgoCD will revert it back to git state within ~3 minutes
+                         # WHY: prevents config drift, enforces git as truth
+                         # CAUTION: disable during emergency hotfixes, re-enable after
+      allowEmpty: false  # Prevent syncing an empty directory (would delete everything)
+    syncOptions:
+      - CreateNamespace=true           # Auto-create namespace if it doesn't exist
+      - PrunePropagationPolicy=foreground  # Wait for pods to terminate before deleting
+      - ApplyOutOfSyncOnly=true        # Only apply resources that are out of sync
+                                       # (faster sync, less load on API server)
+    retry:
+      limit: 5                         # Retry failed syncs up to 5 times
+      backoff:
+        duration: 5s                   # Initial retry delay
+        factor: 2                      # Exponential backoff factor
+        maxDuration: 3m                # Cap at 3 minutes between retries
+
+  # Health check configuration — ArgoCD knows how to check Deployment, StatefulSet,
+  # Service, Ingress health natively. For custom CRDs, define custom health checks.
+  ignoreDifferences:
+    # Some controllers mutate fields after apply. Ignore these to prevent
+    # ArgoCD from showing perpetual OutOfSync status.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # HPA manages replicas — don't let ArgoCD fight HPA
+
+---
+# =============================================================================
+# SYNC WAVES: Control the ORDER of resource creation
+# =============================================================================
+# Problem: ArgoCD syncs all resources simultaneously by default.
+# If you apply a Deployment before its ConfigMap exists — crash loop.
+# If you apply the app before the DB migration runs — data corruption.
+#
+# Solution: sync-wave annotation. Lower number = synced first.
+# ArgoCD waits for each wave to be healthy before proceeding to next.
+#
+# STANDARD ORDERING:
+#   Wave -1: CRDs (must exist before any CR is created)
+#   Wave  0: Namespaces, RBAC (foundational resources)
+#   Wave  1: ConfigMaps, Secrets (config before app)
+#   Wave  2: DB migrations (Jobs that run schema changes)
+#   Wave  3: Deployments, StatefulSets (the actual applications)
+#   Wave  4: Ingress, Services (routing after apps are healthy)
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  namespace: myapp-staging
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"   # Run BEFORE the Deployment (wave 3)
+    argocd.argoproj.io/hook: PreSync    # This is also a PreSync hook (see below)
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation  # Clean up previous run
+spec:
+  template:
+    spec:
+      containers:
+        - name: migration
+          image: myapp:v1.3.0
+          command: ["python", "manage.py", "migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: url
+      restartPolicy: Never
+  backoffLimit: 3   # Retry migration up to 3 times before failing the sync
+
+---
+# =============================================================================
+# SYNC HOOKS: Run logic at specific points in the sync lifecycle
+# =============================================================================
+# Hooks are K8s resources (usually Jobs) that ArgoCD creates/runs at sync phases.
+# Phases:
+#   PreSync:   Before syncing any resources (DB migrations, validation)
+#   Sync:      During sync (custom resource ordering)
+#   PostSync:  After all resources are healthy (smoke tests, notifications)
+#   SyncFail:  Only if sync failed (send alert, trigger rollback)
+#   Skip:      ArgoCD manages lifecycle but does not apply the resource
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: post-deploy-smoke-test
+  namespace: myapp-staging
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded  # Clean up on success
+spec:
+  template:
+    spec:
+      containers:
+        - name: smoke-test
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              # Wait for service to be ready
+              sleep 10
+              # Verify health endpoint returns 200
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://myapp-service/health)
+              if [ "$STATUS" != "200" ]; then
+                echo "Smoke test FAILED: /health returned $STATUS"
+                exit 1
+              fi
+              echo "Smoke test passed: /health returned 200"
+      restartPolicy: Never
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sync-failure-alert
+  namespace: myapp-staging
+  annotations:
+    argocd.argoproj.io/hook: SyncFail   # Only runs when sync FAILS
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      containers:
+        - name: alert
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              curl -X POST $SLACK_WEBHOOK_URL \
+                -H 'Content-type: application/json' \
+                --data '{"text":"ALERT: myapp-staging sync FAILED. Manual intervention required."}'
+      restartPolicy: Never
+
+---
+# =============================================================================
+# APP OF APPS PATTERN: Managing multiple Applications with one Application
+# =============================================================================
+# Problem: 10 microservices = 10 ArgoCD Application manifests.
+# Managing these manually doesn't scale.
+#
+# Solution: "App of Apps" — one root Application that points to a directory
+# of other Application manifests. ArgoCD manages the managers.
+#
+# DIRECTORY STRUCTURE:
+#   gitops-repo/
+#   ├── apps/                     ← Root app points here
+#   │   ├── myapp.yaml            ← Application manifest for myapp
+#   │   ├── auth-service.yaml
+#   │   └── payment-service.yaml
+#   └── services/                 ← Individual service manifests
+#       ├── myapp/
+#       ├── auth-service/
+#       └── payment-service/
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app                  # The one App that rules them all
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/myorg/k8s-manifests.git
+    targetRevision: main
+    path: apps                    # Directory containing Application manifests
+    # ArgoCD will find all Application YAMLs in this directory and manage them
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd             # Applications themselves go in argocd namespace
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+---
+# =============================================================================
+# APPLICATIONSET: Template-based Application generation
+# =============================================================================
+# Problem: 3 environments × 5 services = 15 nearly identical Application manifests.
+# ApplicationSet generates them from a template + list/generator.
+#
+# Generators available:
+#   - List: explicit list of parameter sets
+#   - Git: generate one Application per directory in a git repo
+#   - Cluster: generate one Application per registered cluster
+#   - Matrix: combine two generators (e.g., all services × all clusters)
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: myapp-all-envs
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          # One Application generated per element
+          - env: staging
+            cluster: https://staging-cluster:6443
+            namespace: myapp-staging
+            revision: main              # Staging tracks main branch (auto-deploy)
+          - env: production
+            cluster: https://prod-cluster:6443
+            namespace: myapp-production
+            revision: v1.3.0            # Production tracks an explicit tag
+  template:
+    metadata:
+      name: myapp-{{env}}              # Generates: myapp-staging, myapp-production
+    spec:
+      project: '{{env}}-project'
+      source:
+        repoURL: https://github.com/myorg/k8s-manifests.git
+        targetRevision: '{{revision}}'
+        path: 'apps/myapp/overlays/{{env}}'
+      destination:
+        server: '{{cluster}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          # selfHeal off for production (preserve emergency manual fixes)
+          selfHeal: '{{env == "staging"}}'
+
+---
+# =============================================================================
+# ARGOCD PROJECT: RBAC and resource scoping
+# =============================================================================
+# Projects scope what teams can do. Without projects, every ArgoCD user
+# can deploy anything to any cluster. That's a security nightmare.
+#
+# Project controls:
+#   - Which git repos are allowed as sources
+#   - Which clusters/namespaces are allowed as destinations
+#   - Which K8s resource types are allowed
+#   - Which roles exist and what they can do
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: staging-project
+  namespace: argocd
+spec:
+  description: Staging environment — developers can sync freely
+
+  # Only allow deploys from our org's repos
+  sourceRepos:
+    - https://github.com/myorg/*
+
+  # Only allow deploys to the staging cluster/namespace
+  destinations:
+    - server: https://staging-cluster:6443
+      namespace: myapp-staging
+    - server: https://staging-cluster:6443
+      namespace: myapp-staging-*   # Wildcard for feature namespaces
+
+  # Prevent deploying cluster-wide resources (no ClusterRole, no PV)
+  # Only namespaced resources allowed in staging project
+  clusterResourceWhitelist: []     # Empty = no cluster-level resources
+
+  namespaceResourceBlacklist:
+    - group: ''
+      kind: ResourceQuota          # Don't let devs change quota
+
+  roles:
+    - name: developer
+      description: Can sync staging applications
+      policies:
+        - p, proj:staging-project:developer, applications, get, staging-project/*, allow
+        - p, proj:staging-project:developer, applications, sync, staging-project/*, allow
+        # Cannot delete applications or modify project settings
+      groups:
+        - myorg:developers          # Maps to SSO/OIDC group
+
+---
+# =============================================================================
+# ARGOCD IMAGE UPDATER: Automated CD without manual git commits
+# =============================================================================
+# Problem: CI builds a new image → someone must manually update the image tag
+# in git → ArgoCD syncs. Two-step, manual intervention required.
+#
+# Image Updater watches the container registry. When a new tag matching
+# a semver constraint is pushed, it AUTOMATICALLY updates the git repo
+# with the new tag → ArgoCD picks it up → deploy happens automatically.
+#
+# This completes the CD loop: commit → CI → image → Image Updater → git → ArgoCD → cluster
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp-staging-autoupdate
+  namespace: argocd
+  annotations:
+    # Image Updater annotations on the Application resource
+    argocd-image-updater.argoproj.io/image-list: myapp=ghcr.io/myorg/myapp
+    # Update to latest semver tag matching ~1.x (minor updates, not major)
+    argocd-image-updater.argoproj.io/myapp.update-strategy: semver
+    argocd-image-updater.argoproj.io/myapp.allow-tags: regexp:^v1\.\d+\.\d+$
+    # Write back method: direct (commit to git) or argocd (use ArgoCD API)
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+spec:
+  # ... same as above Application spec
+
+# =============================================================================
+# DRIFT DETECTION
+# =============================================================================
+# When someone does "kubectl edit deployment/myapp" in production without a PR:
+#   - ArgoCD detects the cluster state != git state
+#   - Application shows "OutOfSync" status
+#   - If selfHeal=true: ArgoCD reverts the change automatically
+#   - If selfHeal=false: alerts fire, team investigates
+#
+# This is why GitOps prevents "it works on my cluster" problems.
+# The git repo IS the source of truth. kubectl edits are temporary at best.
+# =============================================================================
