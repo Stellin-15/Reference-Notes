@@ -2,7 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**11 domains · 88 lessons · Zero to architect in each**
+**22 domains · 185 lessons · Zero to architect in each**
+
+Domains are split into two tracks: the original **ML/Data Platform track** (Python through LLM Frameworks) and the **Backend & Future-Proof track** (FastAPI through Platform Engineering), added to cover current backend job-market demand plus skills (Rust, edge, eBPF, platform engineering) expected to stay in demand as the market shifts.
 
 ---
 
@@ -284,6 +286,195 @@ Shell scripting for DevOps and automation tasks.
 
 ---
 
+## Backend & Future-Proof Track
+
+Current backend job-market skills, plus domains expected to stay in demand as the market shifts toward edge/WASM, eBPF-based infra, and platform engineering.
+
+### [FastAPI & Python Web Notes](FastAPI%20%26%20Python%20Web%20Notes/) — Production Python Web Services
+Pydantic validation, async SQLAlchemy 2.0, dependency injection, auth, WebSockets, and production deployment.
+
+| File | Topic |
+|------|-------|
+| [L01_fastapi_fundamentals.py](FastAPI%20%26%20Python%20Web%20Notes/L01_fastapi_fundamentals.py) | Path/query/body params, Pydantic models, response models |
+| [L02_dependency_injection.py](FastAPI%20%26%20Python%20Web%20Notes/L02_dependency_injection.py) | `Depends`, sub-dependencies, yield dependencies, overrides for testing |
+| [L03_async_and_database.py](FastAPI%20%26%20Python%20Web%20Notes/L03_async_and_database.py) | Async SQLAlchemy 2.0, connection pooling, async sessions |
+| [L04_auth_and_middleware.py](FastAPI%20%26%20Python%20Web%20Notes/L04_auth_and_middleware.py) | JWT auth, OAuth2PasswordBearer, custom middleware, CORS |
+| [L05_testing.py](FastAPI%20%26%20Python%20Web%20Notes/L05_testing.py) | TestClient, async test fixtures, dependency overrides, mocking |
+| [L06_websockets_and_realtime.py](FastAPI%20%26%20Python%20Web%20Notes/L06_websockets_and_realtime.py) | WebSocket endpoints, connection managers, pub/sub broadcast |
+| [L07_performance_and_caching.py](FastAPI%20%26%20Python%20Web%20Notes/L07_performance_and_caching.py) | Response caching, background tasks, uvloop, connection tuning |
+| [L08_production_deployment.py](FastAPI%20%26%20Python%20Web%20Notes/L08_production_deployment.py) | Gunicorn+Uvicorn workers, health checks, Prometheus metrics, graceful shutdown |
+
+---
+
+### [System Design Notes](System%20Design%20Notes/) — Scalable Architecture Fundamentals
+CAP theorem through real end-to-end system designs (URL shortener, rate limiter, notification system, job scheduler).
+
+| File | Topic |
+|------|-------|
+| [L01_foundations.py](System%20Design%20Notes/L01_foundations.py) | CAP theorem, consistency models, scalability vs availability tradeoffs |
+| [L02_load_balancing_and_caching.py](System%20Design%20Notes/L02_load_balancing_and_caching.py) | LB algorithms, CDN, cache hierarchy, stampede protection |
+| [L03_databases_at_scale.py](System%20Design%20Notes/L03_databases_at_scale.py) | Sharding, replication, CQRS, event sourcing, polyglot persistence |
+| [L04_messaging_and_event_driven.py](System%20Design%20Notes/L04_messaging_and_event_driven.py) | RabbitMQ exchanges, delivery guarantees, Saga pattern, outbox pattern |
+| [L05_microservices_patterns.py](System%20Design%20Notes/L05_microservices_patterns.py) | Service boundaries, API composition, distributed transactions |
+| [L06_rate_limiting_and_api_patterns.py](System%20Design%20Notes/L06_rate_limiting_and_api_patterns.py) | Token bucket, sliding window, API gateway patterns |
+| [L07_search_and_specialized_stores.py](System%20Design%20Notes/L07_search_and_specialized_stores.py) | Elasticsearch, vector DBs, time-series DBs, graph DBs |
+| [L08_real_system_designs.py](System%20Design%20Notes/L08_real_system_designs.py) | URL shortener, rate limiter, notification system, job scheduler — full designs |
+
+---
+
+### [Go Notes](Go%20Notes/) — Concurrent Backend Services
+Goroutines/channels through gRPC, profiling, and production deployment.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals.go](Go%20Notes/L01_fundamentals.go) | Types, structs, interfaces, error handling idioms |
+| [L02_concurrency.go](Go%20Notes/L02_concurrency.go) | Goroutines, channels, select, sync package, context |
+| [L03_http_server.go](Go%20Notes/L03_http_server.go) | net/http, routing, middleware chains, graceful shutdown |
+| [L04_database_and_grpc.go](Go%20Notes/L04_database_and_grpc.go) | pgx, sqlc, gRPC + protobuf service definitions |
+| [L05_testing_and_benchmarks.go](Go%20Notes/L05_testing_and_benchmarks.go) | Table-driven tests, mocks, httptest, benchmarks, fuzzing |
+| [L06_performance_and_profiling.go](Go%20Notes/L06_performance_and_profiling.go) | pprof, escape analysis, sync.Pool, GOGC tuning |
+| [L07_patterns_and_best_practices.go](Go%20Notes/L07_patterns_and_best_practices.go) | Functional options, error wrapping, layered architecture |
+| [L08_production_deployment.go](Go%20Notes/L08_production_deployment.go) | Build flags, structured logging, health/readiness, Dockerfile |
+
+---
+
+### [Redis & Caching Notes](Redis%20%26%20Caching%20Notes/) — Caching, Streams, and Distributed Patterns
+All Redis data types through clustering, Sentinel, and production hardening.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals.py](Redis%20%26%20Caching%20Notes/L01_fundamentals.py) | Data types, persistence (RDB/AOF), expiration |
+| [L02_caching_patterns.py](Redis%20%26%20Caching%20Notes/L02_caching_patterns.py) | Cache-aside/write-through/write-behind, stampede protection |
+| [L03_sorted_sets_and_advanced.py](Redis%20%26%20Caching%20Notes/L03_sorted_sets_and_advanced.py) | ZSETs, leaderboards, HyperLogLog, Geo commands, Lua scripts |
+| [L04_streams.py](Redis%20%26%20Caching%20Notes/L04_streams.py) | XADD/XREADGROUP, consumer groups, DLQ, watchdog reclaim |
+| [L05_distributed_patterns.py](Redis%20%26%20Caching%20Notes/L05_distributed_patterns.py) | Distributed locks, session store, dedup, atomic rate limiter |
+| [L06_leaderboards_and_queues.py](Redis%20%26%20Caching%20Notes/L06_leaderboards_and_queues.py) | Real-time leaderboards, priority/delayed/reliable queues |
+| [L07_pub_sub_and_patterns.py](Redis%20%26%20Caching%20Notes/L07_pub_sub_and_patterns.py) | Pub/Sub, keyspace notifications, fan-out architecture |
+| [L08_cluster_and_ha.py](Redis%20%26%20Caching%20Notes/L08_cluster_and_ha.py) | Redis Cluster horizontal scaling, persistence, memory tuning |
+| [L09_clustering_and_sentinel.py](Redis%20%26%20Caching%20Notes/L09_clustering_and_sentinel.py) | Sentinel failover, hash slots, cross-slot limitations |
+| [L10_production_patterns.py](Redis%20%26%20Caching%20Notes/L10_production_patterns.py) | Connection pooling, monitoring, memory/persistence tuning, ACLs |
+
+---
+
+### [Observability Notes](Observability%20Notes/) — Metrics, Logs, Traces, SLOs
+Prometheus/PromQL through OpenTelemetry, chaos engineering, and full observability architecture.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals.py](Observability%20Notes/L01_fundamentals.py) | Three pillars, golden signals, SLI/SLO/SLA, cardinality |
+| [L02_metrics_fundamentals.py](Observability%20Notes/L02_metrics_fundamentals.py) | Prometheus data model, PromQL, USE/RED methods |
+| [L03_prometheus_and_metrics.py](Observability%20Notes/L03_prometheus_and_metrics.py) | Metric types, label cardinality rules, production FastAPI setup |
+| [L04_logging_best_practices.py](Observability%20Notes/L04_logging_best_practices.py) | Structured logging, correlation IDs, log aggregation |
+| [L05_distributed_tracing.py](Observability%20Notes/L05_distributed_tracing.py) | Trace/span model, context propagation, sampling strategies |
+| [L06_alerting_and_slos.py](Observability%20Notes/L06_alerting_and_slos.py) | SLI/SLO/error budgets, multi-window burn-rate alerting |
+| [L07_opentelemetry.py](Observability%20Notes/L07_opentelemetry.py) | OTel SDK, Collector pipeline, semantic conventions |
+| [L08_apm_and_profiling.py](Observability%20Notes/L08_apm_and_profiling.py) | Continuous profiling, memory/CPU profiling, N+1 detection |
+| [L09_chaos_engineering.py](Observability%20Notes/L09_chaos_engineering.py) | Fault injection, steady-state hypothesis, circuit breaker validation |
+| [L10_production_observability_architecture.py](Observability%20Notes/L10_production_observability_architecture.py) | Full metrics/logs/traces pipeline, cost control, on-call workflow |
+
+---
+
+### [API Design Notes](API%20Design%20Notes/) — REST, gRPC, GraphQL, and Production APIs
+REST principles through webhooks, rate limiting, and a full production API design checklist.
+
+| File | Topic |
+|------|-------|
+| [L01_rest_principles.py](API%20Design%20Notes/L01_rest_principles.py) | Resource modeling, HTTP semantics, HATEOAS |
+| [L02_versioning_and_openapi.py](API%20Design%20Notes/L02_versioning_and_openapi.py) | Versioning strategies, OpenAPI 3.1, Pydantic schema generation |
+| [L03_grpc_and_protobuf.py](API%20Design%20Notes/L03_grpc_and_protobuf.py) | Protobuf messages, streaming RPCs, deadlines, error codes |
+| [L04_graphql.py](API%20Design%20Notes/L04_graphql.py) | Schema/resolvers, N+1 + DataLoader, Apollo Federation |
+| [L05_api_gateway.py](API%20Design%20Notes/L05_api_gateway.py) | Kong/AWS API Gateway, BFF pattern, auth at the gateway |
+| [L06_webhooks_and_events.py](API%20Design%20Notes/L06_webhooks_and_events.py) | Signature verification, retry/backoff, CloudEvents |
+| [L07_webhooks_and_async_apis.py](API%20Design%20Notes/L07_webhooks_and_async_apis.py) | Async operation patterns (202 + polling), idempotency, pagination |
+| [L08_rate_limiting_and_throttling.py](API%20Design%20Notes/L08_rate_limiting_and_throttling.py) | Token/leaky bucket, distributed rate limiting with Redis Lua |
+| [L09_api_security_and_performance.py](API%20Design%20Notes/L09_api_security_and_performance.py) | Security headers, SSRF blocking, compression, ETags |
+| [L10_production_api_design.py](API%20Design%20Notes/L10_production_api_design.py) | Idempotency keys, pagination, contract testing, deprecation workflow |
+
+---
+
+### [Auth & Security Notes](Auth%20%26%20Security%20Notes/) — Authentication, Authorization, OWASP
+Password hashing through OAuth2/OIDC, RBAC/OPA, secrets management, and full security architecture.
+
+| File | Topic |
+|------|-------|
+| [L01_authentication_fundamentals.py](Auth%20%26%20Security%20Notes/L01_authentication_fundamentals.py) | bcrypt/argon2id, TOTP MFA, session security |
+| [L02_jwt_and_tokens.py](Auth%20%26%20Security%20Notes/L02_jwt_and_tokens.py) | HS256/RS256, claims validation, refresh rotation, JWKS |
+| [L03_oauth2_and_oidc.py](Auth%20%26%20Security%20Notes/L03_oauth2_and_oidc.py) | Authorization Code + PKCE, Client Credentials, OIDC discovery |
+| [L04_owasp_top10.py](Auth%20%26%20Security%20Notes/L04_owasp_top10.py) | All OWASP Top 10 with vulnerable code + fix, side by side |
+| [L05_rbac_and_authorization.py](Auth%20%26%20Security%20Notes/L05_rbac_and_authorization.py) | RBAC/ABAC/ReBAC, Casbin, OPA/Rego, row-level security |
+| [L06_secrets_management.py](Auth%20%26%20Security%20Notes/L06_secrets_management.py) | Secret rotation/distribution patterns, never committing secrets |
+| [L07_secrets_management.py](Auth%20%26%20Security%20Notes/L07_secrets_management.py) | Vault dynamic secrets, AWS Secrets Manager, K8s Secrets, leak detection |
+| [L08_api_security_hardening.py](Auth%20%26%20Security%20Notes/L08_api_security_hardening.py) | Security headers, CORS, dependency scanning, container hardening |
+| [L09_tls_and_network_security.py](Auth%20%26%20Security%20Notes/L09_tls_and_network_security.py) | TLS 1.3, cert-manager, Kubernetes NetworkPolicy |
+| [L10_mtls_and_service_security.py](Auth%20%26%20Security%20Notes/L10_mtls_and_service_security.py) | Mutual TLS, SPIFFE/SPIRE, JWT service tokens, zero-trust mesh |
+| [L11_security_architecture.py](Auth%20%26%20Security%20Notes/L11_security_architecture.py) | Defense in depth, zero trust, SBOM/cosign, STRIDE threat modeling |
+
+---
+
+### [Rust Notes](Rust%20Notes/) — Systems Programming with Memory Safety
+Ownership/borrowing through async Tokio, Axum, unsafe/FFI, and production Rust.
+
+| File | Topic |
+|------|-------|
+| [L01_ownership_and_borrowing.rs](Rust%20Notes/L01_ownership_and_borrowing.rs) | Move semantics, borrow checker, lifetimes, RAII |
+| [L02_structs_enums_and_traits.rs](Rust%20Notes/L02_structs_enums_and_traits.rs) | Algebraic data types, traits, static vs dynamic dispatch, generics |
+| [L03_error_handling.rs](Rust%20Notes/L03_error_handling.rs) | `Result`/`Option`, `?` operator, custom errors, `thiserror`/`anyhow` |
+| [L04_concurrency.rs](Rust%20Notes/L04_concurrency.rs) | Threads, `Arc<Mutex<T>>`, channels, `Send`/`Sync` |
+| [L05_async_and_tokio.rs](Rust%20Notes/L05_async_and_tokio.rs) | Futures, `tokio::spawn`, channels, `select!`, streams |
+| [L06_axum_web_server.rs](Rust%20Notes/L06_axum_web_server.rs) | Router, extractors, shared state, Tower middleware |
+| [L07_performance_and_unsafe.rs](Rust%20Notes/L07_performance_and_unsafe.rs) | Zero-cost abstractions, SIMD, raw pointers, FFI |
+| [L08_production_rust.rs](Rust%20Notes/L08_production_rust.rs) | Cargo workspaces, `tracing`, Docker multi-stage, CI |
+
+---
+
+### [Edge Computing Notes](Edge%20Computing%20Notes/) — V8 Isolates, WASM, Edge AI
+Cloudflare Workers/edge fundamentals through WebAssembly, edge AI inference, and production multi-CDN architecture.
+
+| File | Topic |
+|------|-------|
+| [L01_concepts.js](Edge%20Computing%20Notes/L01_concepts.js) | V8 Isolates vs containers, edge use cases, provider landscape |
+| [L02_cloudflare_workers.js](Edge%20Computing%20Notes/L02_cloudflare_workers.js) | KV, Durable Objects, R2, D1, Queues, Workers AI |
+| [L03_webassembly.js](Edge%20Computing%20Notes/L03_webassembly.js) | WASM linear memory, WASI, Rust→WASM, Component Model |
+| [L04_edge_ai_and_inference.js](Edge%20Computing%20Notes/L04_edge_ai_and_inference.js) | Quantization, ONNX Runtime Web, Workers AI, hybrid vector search |
+| [L05_edge_caching.js](Edge%20Computing%20Notes/L05_edge_caching.js) | Cache-Control/SWR, surrogate keys, request collapsing, ESI |
+| [L06_edge_security.js](Edge%20Computing%20Notes/L06_edge_security.js) | WAF, bot management, edge JWT validation, signed URLs |
+| [L07_edge_networking.js](Edge%20Computing%20Notes/L07_edge_networking.js) | Anycast/BGP, HTTP/3 QUIC, Early Hints, origin shield |
+| [L08_production_edge.js](Edge%20Computing%20Notes/L08_production_edge.js) | Multi-CDN failover, canary deploys, cost optimization, data residency |
+
+---
+
+### [eBPF Notes](eBPF%20Notes/) — Kernel-Level Observability, Networking, and Security
+BPF fundamentals through XDP networking, Cilium, and production eBPF operations.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals.py](eBPF%20Notes/L01_fundamentals.py) | Verifier, JIT, program types, BPF maps, CO-RE/BTF |
+| [L02_bcc_and_tracing.py](eBPF%20Notes/L02_bcc_and_tracing.py) | BCC Python API, kprobes/kretprobes, per-PID stats |
+| [L03_network_observability.py](eBPF%20Notes/L03_network_observability.py) | Tracepoints, USDT, bpftrace one-liners, latency histograms |
+| [L04_xdp_advanced.py](eBPF%20Notes/L04_xdp_advanced.py) | XDP verdicts, LPM trie blocklists, DSR load balancing |
+| [L05_security_and_observability.py](eBPF%20Notes/L05_security_and_observability.py) | Falco rules, LSM BPF enforcement, Tetragon, container escape detection |
+| [L06_cilium_and_kubernetes.py](eBPF%20Notes/L06_cilium_and_kubernetes.py) | kube-proxy replacement, L7 CiliumNetworkPolicy, Hubble |
+| [L07_libbpf_and_go.py](eBPF%20Notes/L07_libbpf_and_go.py) | CO-RE, `cilium/ebpf`, bpf2go, ring buffer, pinning |
+| [L08_production_ebpf.py](eBPF%20Notes/L08_production_ebpf.py) | Kernel compatibility, capabilities, verifier debugging, self-observability |
+
+---
+
+### [Platform Engineering Notes](Platform%20Engineering%20Notes/) — Internal Developer Platforms
+Backstage/IDP through Terraform, Vault, OPA, service mesh, and platform maturity models.
+
+| File | Topic |
+|------|-------|
+| [L01_idp_and_backstage.py](Platform%20Engineering%20Notes/L01_idp_and_backstage.py) | Software catalog, catalog-info.yaml, scaffolder templates |
+| [L02_infrastructure_as_code.py](Platform%20Engineering%20Notes/L02_infrastructure_as_code.py) | Terraform state, modules, workspaces, Atlantis GitOps |
+| [L03_secrets_and_vault.py](Platform%20Engineering%20Notes/L03_secrets_and_vault.py) | Dynamic DB secrets, auth methods, Vault Agent, auto-unseal |
+| [L04_policy_as_code.py](Platform%20Engineering%20Notes/L04_policy_as_code.py) | Rego, Gatekeeper admission control, Conftest CI policy checks |
+| [L05_platform_networking.py](Platform%20Engineering%20Notes/L05_platform_networking.py) | Istio mTLS, canary traffic splits, circuit breaking, Linkerd/Cilium |
+| [L06_developer_experience.py](Platform%20Engineering%20Notes/L06_developer_experience.py) | DORA metrics, internal CLI, Tilt, preview environments |
+| [L07_finops_and_cost.py](Platform%20Engineering%20Notes/L07_finops_and_cost.py) | Cost attribution, Kubecost allocation, spot strategy, waste detection |
+| [L08_platform_maturity.py](Platform%20Engineering%20Notes/L08_platform_maturity.py) | Maturity model, Team Topologies, platform SLOs, reference architecture |
+
+---
+
 ## Recommended Study Order
 
 **Start here if you're new to the stack:**
@@ -307,18 +498,39 @@ Shell scripting for DevOps and automation tasks.
 
 **C++ / HFT track** is independent — start anytime, pairs well with systems programming interest.
 
+**If you're targeting backend/platform roles specifically, follow the Backend & Future-Proof track:**
+
+12. FastAPI & Python Web Notes — production Python web services
+13. System Design Notes — architecture fundamentals before you need them under pressure
+14. Go Notes — a second language for high-concurrency services
+15. Redis & Caching Notes — the caching layer underneath most of the above
+16. Observability Notes — you can't operate what you can't see
+17. API Design Notes — contracts between everything you've built
+18. Auth & Security Notes — non-negotiable for anything production-facing
+
+**Future-proofing (pick up as time allows, high leverage as the market shifts):**
+
+19. Rust Notes — where performance-critical backend work is heading
+20. Edge Computing Notes — WASM/V8-isolate compute is growing fast
+21. eBPF Notes — the new foundation for observability/networking/security tooling
+22. Platform Engineering Notes — the discipline tying all of the above together at org scale
+
 ---
 
 ## Prerequisites
 
-- Python 3.11+ for Python/ML/MLOps/LLM lessons
+- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering lessons
 - Docker Desktop for Docker lessons
-- `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes
+- `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
 - PostgreSQL 15+ for SQL lessons
 - AWS account (free tier covers most Cloud lessons)
 - PySpark 3.4+ for Spark lessons
 - g++ with C++20 support for C++ lessons
+- Go 1.22+ for Go lessons
+- Rust toolchain (rustup) for Rust lessons
+- Node.js / a Cloudflare Workers account for Edge Computing lessons
+- A Linux host with a modern kernel (5.10+) for eBPF lessons — WSL2 or a VM on Windows
 
 ---
 
-*88 lessons across 11 domains. Built to take you from zero to senior/architect level.*
+*185 lessons across 22 domains. Built to take you from zero to senior/architect level.*
