@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**22 domains · 185 lessons · Zero to architect in each**
+**23 domains · 210 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into two tracks: the original **ML/Data Platform track** (Python through LLM Frameworks) and the **Backend & Future-Proof track** (FastAPI through Platform Engineering), added to cover current backend job-market demand plus skills (Rust, edge, eBPF, platform engineering) expected to stay in demand as the market shifts.
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — a deeper, 25-lesson path to building LLMs from scratch, quantizing them, writing GPU kernels, and publishing original research).
 
 ---
 
@@ -475,6 +475,51 @@ Backstage/IDP through Terraform, Vault, OPA, service mesh, and platform maturity
 
 ---
 
+## Research & Hardware Specialization Track
+
+A deeper, research-oriented track for going from zero to being able to build LLMs from scratch, quantize them, and eventually publish original work — separate from (and deeper than) the other domains, which are 8-lesson surveys. This one is 25 lessons across 8 phases because it targets genuine research/systems depth, not a survey.
+
+### [LLM Quantization & Inference Notes](LLM%20Quantization%20%26%20Inference%20Notes/) — Build, Quantize, and Optimize LLMs From Scratch
+From tensors and autograd through building a transformer from scratch, reproducing GPTQ/AWQ/SmoothQuant/GGUF, writing real Triton/CUDA kernels for a consumer GPU, understanding vLLM/llama.cpp internals, and structuring a publishable research contribution.
+
+| File | Topic |
+|------|-------|
+| **Phase 1 — Deep Learning Foundations** | |
+| [L01_tensors_and_autograd.py](LLM%20Quantization%20%26%20Inference%20Notes/L01_tensors_and_autograd.py) | Tensors as strided memory, autograd/backprop from scratch |
+| [L02_linear_algebra_and_numerics.py](LLM%20Quantization%20%26%20Inference%20Notes/L02_linear_algebra_and_numerics.py) | Matmul cost, FP32/FP16/BF16 representation, outlier problem |
+| [L03_attention_from_first_principles.py](LLM%20Quantization%20%26%20Inference%20Notes/L03_attention_from_first_principles.py) | Scaled dot-product & multi-head attention derived, positional encoding |
+| **Phase 2 — Building an LLM From Scratch** | |
+| [L04_tokenization_bpe.py](LLM%20Quantization%20%26%20Inference%20Notes/L04_tokenization_bpe.py) | Byte-pair encoding implemented from scratch, vocab size tradeoffs |
+| [L05_transformer_block.py](LLM%20Quantization%20%26%20Inference%20Notes/L05_transformer_block.py) | RMSNorm, RoPE, grouped-query attention, SwiGLU — a real LLaMA-style block |
+| [L06_training_loop_and_optimizers.py](LLM%20Quantization%20%26%20Inference%20Notes/L06_training_loop_and_optimizers.py) | AdamW derived from scratch, LR schedules, mixed precision |
+| [L07_scaling_laws.py](LLM%20Quantization%20%26%20Inference%20Notes/L07_scaling_laws.py) | Chinchilla scaling laws, compute-optimal allocation, fitting power laws |
+| [L08_finetuning_lora_qlora.py](LLM%20Quantization%20%26%20Inference%20Notes/L08_finetuning_lora_qlora.py) | Full FT memory cost, LoRA derived, QLoRA — the bridge to quantization |
+| **Phase 3 — Quantization Fundamentals** | |
+| [L09_quantization_math_fundamentals.py](LLM%20Quantization%20%26%20Inference%20Notes/L09_quantization_math_fundamentals.py) | Scale/zero-point math, symmetric vs asymmetric, error metrics |
+| [L10_ptq_vs_qat.py](LLM%20Quantization%20%26%20Inference%20Notes/L10_ptq_vs_qat.py) | Post-training vs quantization-aware training, straight-through estimator |
+| [L11_calibration_and_granularity.py](LLM%20Quantization%20%26%20Inference%20Notes/L11_calibration_and_granularity.py) | Activation calibration, per-tensor/channel/group tradeoffs |
+| **Phase 4 — Modern Quantization Research** | |
+| [L12_gptq.py](LLM%20Quantization%20%26%20Inference%20Notes/L12_gptq.py) | GPTQ reproduced from scratch — Hessian-based error compensation |
+| [L13_awq.py](LLM%20Quantization%20%26%20Inference%20Notes/L13_awq.py) | AWQ reproduced from scratch — activation-aware channel rescaling |
+| [L14_smoothquant_and_llm_int8.py](LLM%20Quantization%20%26%20Inference%20Notes/L14_smoothquant_and_llm_int8.py) | SmoothQuant and LLM.int8() — activation quantization (W8A8) |
+| [L15_gguf_and_kquants.py](LLM%20Quantization%20%26%20Inference%20Notes/L15_gguf_and_kquants.py) | GGUF/K-quants — llama.cpp's hierarchical block quantization |
+| [L16_sub_4bit_and_open_questions.py](LLM%20Quantization%20%26%20Inference%20Notes/L16_sub_4bit_and_open_questions.py) | NF4, ternary/BitNet, and genuinely open research questions |
+| **Phase 5 — CUDA/Triton for a Consumer GPU** | |
+| [L17_gpu_memory_hierarchy.py](LLM%20Quantization%20%26%20Inference%20Notes/L17_gpu_memory_hierarchy.py) | HBM/shared memory/registers, the roofline model |
+| [L18_triton_fused_dequant_matmul.py](LLM%20Quantization%20%26%20Inference%20Notes/L18_triton_fused_dequant_matmul.py) | A real, runnable fused INT4 dequant-matmul Triton kernel |
+| [L19_cuda_fundamentals.py](LLM%20Quantization%20%26%20Inference%20Notes/L19_cuda_fundamentals.py) | Threads/warps/blocks, shared-memory tiling, warp shuffles |
+| **Phase 6 — Inference Engine Internals** | |
+| [L20_kv_cache_and_paged_attention.py](LLM%20Quantization%20%26%20Inference%20Notes/L20_kv_cache_and_paged_attention.py) | KV cache memory cost, PagedAttention block management |
+| [L21_continuous_batching_and_speculative_decoding.py](LLM%20Quantization%20%26%20Inference%20Notes/L21_continuous_batching_and_speculative_decoding.py) | In-flight batching, draft-model speculative decoding |
+| [L22_inference_engine_architecture.py](LLM%20Quantization%20%26%20Inference%20Notes/L22_inference_engine_architecture.py) | How vLLM and llama.cpp are actually built, mapped to L17-L21 |
+| **Phase 7 — Research Methodology & Publishing** | |
+| [L23_reading_and_reproducing_papers.py](LLM%20Quantization%20%26%20Inference%20Notes/L23_reading_and_reproducing_papers.py) | Critical paper reading, statistically rigorous reproduction |
+| [L24_writing_and_publishing_research.py](LLM%20Quantization%20%26%20Inference%20Notes/L24_writing_and_publishing_research.py) | Contribution scoping, paper structure, realistic venues |
+| **Phase 8 — Capstone** | |
+| [L25_capstone_design_and_roadmap.py](LLM%20Quantization%20%26%20Inference%20Notes/L25_capstone_design_and_roadmap.py) | Three scoped project templates tying every phase together |
+
+---
+
 ## Recommended Study Order
 
 **Start here if you're new to the stack:**
@@ -515,11 +560,15 @@ Backstage/IDP through Terraform, Vault, OPA, service mesh, and platform maturity
 21. eBPF Notes — the new foundation for observability/networking/security tooling
 22. Platform Engineering Notes — the discipline tying all of the above together at org scale
 
+**If your goal is research and hardware-efficiency work specifically (writing papers, building inference tooling):**
+
+23. LLM Quantization & Inference Notes — an independent, self-contained 25-lesson deep track. Start anytime you have a GPU-capable machine and want to go deeper than the ML Frameworks/LLM Frameworks tracks; it assumes no prior transformer-internals knowledge and builds from tensors up through publishing.
+
 ---
 
 ## Prerequisites
 
-- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering lessons
+- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization lessons
 - Docker Desktop for Docker lessons
 - `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
 - PostgreSQL 15+ for SQL lessons
@@ -530,7 +579,8 @@ Backstage/IDP through Terraform, Vault, OPA, service mesh, and platform maturity
 - Rust toolchain (rustup) for Rust lessons
 - Node.js / a Cloudflare Workers account for Edge Computing lessons
 - A Linux host with a modern kernel (5.10+) for eBPF lessons — WSL2 or a VM on Windows
+- PyTorch + an NVIDIA GPU (consumer-class, e.g. RTX-series) for the CUDA/Triton kernel lessons (L17-L19) in LLM Quantization & Inference Notes — the rest of that domain's lessons run fine on CPU
 
 ---
 
-*185 lessons across 22 domains. Built to take you from zero to senior/architect level.*
+*210 lessons across 23 domains. Built to take you from zero to senior/architect level — and, in the research track, to publishable original work.*
