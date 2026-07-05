@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**27 domains · 287 lessons · Zero to architect (and researcher) in each**
+**31 domains · 336 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; and Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; and GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call — and Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch — covering current backend/full-stack job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
 
 ---
 
@@ -257,6 +257,26 @@ The full CI/CD pipeline: testing pyramid, Docker builds, deployment strategies, 
 
 ---
 
+### [DevOps & SRE Practices Notes](DevOps%20%26%20SRE%20Practices%20Notes/) — Config Management, Incident Response, Error Budgets
+The operational discipline underneath CI/CD: configuration management, Linux/network fundamentals, load testing, capacity planning, and the incident/postmortem/on-call practices that keep production systems running.
+
+| File | Topic |
+|------|-------|
+| [L01_configuration_management_fundamentals.py](DevOps%20%26%20SRE%20Practices%20Notes/L01_configuration_management_fundamentals.py) | Push vs pull config management, idempotency, declarative vs imperative |
+| [L02_ansible_deep_dive.py](DevOps%20%26%20SRE%20Practices%20Notes/L02_ansible_deep_dive.py) | Playbooks, inventories, roles, idempotent modules |
+| [L03_ansible_vs_puppet_vs_chef.py](DevOps%20%26%20SRE%20Practices%20Notes/L03_ansible_vs_puppet_vs_chef.py) | Push vs pull architecture tradeoffs, when each tool wins |
+| [L04_linux_systems_administration.py](DevOps%20%26%20SRE%20Practices%20Notes/L04_linux_systems_administration.py) | systemd, process/disk/package management |
+| [L05_network_engineering_for_devops.py](DevOps%20%26%20SRE%20Practices%20Notes/L05_network_engineering_for_devops.py) | DNS, load balancers, security groups |
+| [L06_load_and_performance_testing.py](DevOps%20%26%20SRE%20Practices%20Notes/L06_load_and_performance_testing.py) | k6, Locust, JMeter, interpreting load test results |
+| [L07_capacity_planning.py](DevOps%20%26%20SRE%20Practices%20Notes/L07_capacity_planning.py) | Demand forecasting, headroom, autoscaling policy design |
+| [L08_incident_command_and_management.py](DevOps%20%26%20SRE%20Practices%20Notes/L08_incident_command_and_management.py) | Severity levels, incident commander role separation |
+| [L09_postmortems_and_blameless_culture.py](DevOps%20%26%20SRE%20Practices%20Notes/L09_postmortems_and_blameless_culture.py) | Blameless postmortems, 5 Whys root-cause analysis |
+| [L10_sre_error_budgets_and_toil.py](DevOps%20%26%20SRE%20Practices%20Notes/L10_sre_error_budgets_and_toil.py) | SLOs, error budgets, identifying and eliminating toil |
+| [L11_on_call_practices.py](DevOps%20%26%20SRE%20Practices%20Notes/L11_on_call_practices.py) | Rotation fairness, alert fatigue, runbooks |
+| [L12_production_devops_architecture.py](DevOps%20%26%20SRE%20Practices%20Notes/L12_production_devops_architecture.py) | Capstone: full operational architecture end to end |
+
+---
+
 ### [Cloud Platforms Notes](Cloud%20Platforms%20Notes/) — AWS (+ Azure/GCP Equivalents)
 Core cloud services with AWS as primary. Every lesson notes Azure/GCP equivalents. Architect-level HA patterns in L08.
 
@@ -270,6 +290,23 @@ Core cloud services with AWS as primary. Every lesson notes Azure/GCP equivalent
 | [L06_iam_and_security.sh](Cloud%20Platforms%20Notes/L06_iam_and_security.sh) | IAM roles/policies, OIDC federation, SCPs, GuardDuty, KMS |
 | [L07_serverless.sh](Cloud%20Platforms%20Notes/L07_serverless.sh) | Lambda, API Gateway, EventBridge, SQS/SNS, Step Functions |
 | [L08_high_availability_architecture.sh](Cloud%20Platforms%20Notes/L08_high_availability_architecture.sh) | Multi-AZ, multi-region, Route 53 failover, chaos engineering |
+
+---
+
+### [Data Science Fundamentals Notes](Data%20Science%20Fundamentals%20Notes/) — Probability, Statistics, Optimization, Visualization
+The mathematical foundation underneath every ML/data domain in this repo: probability and Bayesian inference, statistical hypothesis testing, EDA, gradient-descent optimization, linear algebra for ML, and data visualization (Matplotlib/Seaborn/Tableau) done honestly.
+
+| File | Topic |
+|------|-------|
+| [L01_probability_fundamentals.py](Data%20Science%20Fundamentals%20Notes/L01_probability_fundamentals.py) | Distributions, Bayes' theorem, the base-rate fallacy, expectation/variance |
+| [L02_statistical_inference.py](Data%20Science%20Fundamentals%20Notes/L02_statistical_inference.py) | Central Limit Theorem, confidence intervals, hypothesis testing, p-values |
+| [L03_descriptive_statistics_and_eda.py](Data%20Science%20Fundamentals%20Notes/L03_descriptive_statistics_and_eda.py) | Central tendency/spread, skewness, outlier detection, correlation vs causation |
+| [L04_optimization_fundamentals.py](Data%20Science%20Fundamentals%20Notes/L04_optimization_fundamentals.py) | Gradient descent, learning rate tradeoffs, convexity, SGD with momentum |
+| [L05_linear_algebra_for_ml.py](Data%20Science%20Fundamentals%20Notes/L05_linear_algebra_for_ml.py) | Vectors, dot product/cosine similarity, matrix multiplication, PCA intuition |
+| [L06_matplotlib_and_seaborn.py](Data%20Science%20Fundamentals%20Notes/L06_matplotlib_and_seaborn.py) | Histograms, scatter plots, box plots, correlation heatmaps, Anscombe's Quartet |
+| [L07_tableau_and_bi_visualization.py](Data%20Science%20Fundamentals%20Notes/L07_tableau_and_bi_visualization.py) | Interactive BI dashboards, live data connections, BI vs code-based plotting |
+| [L08_data_visualization_best_practices.py](Data%20Science%20Fundamentals%20Notes/L08_data_visualization_best_practices.py) | Honest axes, chart-junk, colorblind-safe palettes, chart-type selection |
+| [L09_capstone_data_science_workflow.py](Data%20Science%20Fundamentals%20Notes/L09_capstone_data_science_workflow.py) | Capstone: the full EDA → inference → modeling → communication workflow |
 
 ---
 
@@ -289,6 +326,28 @@ Complete ML framework coverage: classical ML, gradient boosting, deep learning, 
 
 ---
 
+### [GPU Computing & Distributed Training Notes](GPU%20Computing%20%26%20Distributed%20Training%20Notes/) — CUDA, NCCL, DeepSpeed, Multi-GPU Training
+Goes under the hood of L05's `DDP`/AMP one-liners: SM/warp/Tensor Core architecture, raw CUDA programming, data/model/pipeline parallelism, NCCL collectives, DeepSpeed ZeRO, Kubernetes GPU scheduling, and profiling with Nsight.
+
+| File | Topic |
+|------|-------|
+| [L01_gpu_computing_fundamentals.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L01_gpu_computing_fundamentals.py) | SM/warp/Tensor Core architecture, why GPUs suit matrix multiplication |
+| [L02_cuda_programming_basics.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L02_cuda_programming_basics.py) | Kernels, memory management, streams |
+| [L03_cudnn_and_cublas.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L03_cudnn_and_cublas.py) | Vendor libraries, kernel fusion |
+| [L04_data_parallelism.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L04_data_parallelism.py) | PyTorch DDP internals, linear LR scaling rule |
+| [L05_model_and_tensor_parallelism.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L05_model_and_tensor_parallelism.py) | Megatron-style tensor/model parallelism |
+| [L06_pipeline_parallelism.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L06_pipeline_parallelism.py) | GPipe vs 1F1B scheduling, bubble overhead |
+| [L07_nccl_collective_communication.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L07_nccl_collective_communication.py) | AllReduce/AllGather/Broadcast, ring-AllReduce scaling |
+| [L08_deepspeed.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L08_deepspeed.py) | ZeRO stages 1-3, memory partitioning |
+| [L09_horovod_and_alternatives.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L09_horovod_and_alternatives.py) | Horovod vs native DDP/DeepSpeed |
+| [L10_mixed_precision_and_gradient_scaling.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L10_mixed_precision_and_gradient_scaling.py) | AMP in distributed settings, loss scaling |
+| [L11_kubernetes_gpu_scheduling.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L11_kubernetes_gpu_scheduling.py) | Device plugins, taints/tolerations, Kubeflow Training Operator |
+| [L12_multi_instance_gpu_and_sharing.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L12_multi_instance_gpu_and_sharing.py) | MIG partitioning, time-slicing GPU sharing |
+| [L13_profiling_with_nsight.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L13_profiling_with_nsight.py) | Nsight Systems/Compute profiling |
+| [L14_rocm_and_hardware_alternatives.py](GPU%20Computing%20%26%20Distributed%20Training%20Notes/L14_rocm_and_hardware_alternatives.py) | Capstone: ROCm/HIP as an AMD alternative, full architecture |
+
+---
+
 ### [MLOps Notes](MLOps%20Notes/) — Experiment Tracking to Full ML Platform
 End-to-end MLOps: from first MLflow run to a complete production ML platform with CI/CD, feature stores, drift monitoring, and incident response.
 
@@ -302,6 +361,10 @@ End-to-end MLOps: from first MLflow run to a complete production ML platform wit
 | [L06_monitoring_and_drift.py](MLOps%20Notes/L06_monitoring_and_drift.py) | PSI, KS test, Evidently AI, Prometheus metrics, retraining triggers |
 | [L07_model_registry_and_versioning.py](MLOps%20Notes/L07_model_registry_and_versioning.py) | MLflow Registry, DVC, semantic versioning, shadow mode, canary routing |
 | [L08_production_mlops_architecture.py](MLOps%20Notes/L08_production_mlops_architecture.py) | Full 6-layer ML platform, CI/CD for ML, cost optimization, incident response |
+| [L09_online_experimentation_for_ml.py](MLOps%20Notes/L09_online_experimentation_for_ml.py) | A/B testing statistics, the peeking problem, sequential testing, multi-armed bandits |
+| [L10_ml_testing_frameworks.py](MLOps%20Notes/L10_ml_testing_frameworks.py) | Data validation, invariance/directional/minimum-functionality behavioral tests |
+| [L11_responsible_ai_and_fairness.py](MLOps%20Notes/L11_responsible_ai_and_fairness.py) | Demographic parity, equalized odds, model cards, SHAP-style explainability |
+| [L12_advanced_deployment_patterns.py](MLOps%20Notes/L12_advanced_deployment_patterns.py) | Champion-challenger, shadow deployment, bandit-based traffic allocation |
 
 ---
 
@@ -379,6 +442,24 @@ Pydantic validation, async SQLAlchemy 2.0, dependency injection, auth, WebSocket
 | [L06_websockets_and_realtime.py](FastAPI%20%26%20Python%20Web%20Notes/L06_websockets_and_realtime.py) | WebSocket endpoints, connection managers, pub/sub broadcast |
 | [L07_performance_and_caching.py](FastAPI%20%26%20Python%20Web%20Notes/L07_performance_and_caching.py) | Response caching, background tasks, uvloop, connection tuning |
 | [L08_production_deployment.py](FastAPI%20%26%20Python%20Web%20Notes/L08_production_deployment.py) | Gunicorn+Uvicorn workers, health checks, Prometheus metrics, graceful shutdown |
+
+---
+
+### [Full-Stack & Frontend Essentials Notes](Full-Stack%20%26%20Frontend%20Essentials%20Notes/) — React, Vue, Node/Express, Django, MongoDB, Elasticsearch
+The frontend and adjacent-backend half of "full-stack": React/Vue component models and state management, Node/Express, Django as a FastAPI alternative, MongoDB and Elasticsearch, and the streaming/WebSocket integration patterns real AI chat UIs need.
+
+| File | Topic |
+|------|-------|
+| [L01_react_fundamentals.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L01_react_fundamentals.py) | Components, JSX, `useState`/`useEffect` |
+| [L02_react_state_management.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L02_react_state_management.py) | Context API, Zustand, Redux — escalating only as needed |
+| [L03_vue_fundamentals.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L03_vue_fundamentals.py) | Composition API: `ref`/`reactive`/`computed`/`watch`, fine-grained reactivity |
+| [L04_nodejs_and_express.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L04_nodejs_and_express.py) | Event loop, routing, middleware, async error handling |
+| [L05_django_fundamentals.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L05_django_fundamentals.py) | ORM, views/URLs, admin interface, vs FastAPI |
+| [L06_mongodb_fundamentals.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L06_mongodb_fundamentals.py) | Document model, embedding vs referencing, aggregation pipeline |
+| [L07_elasticsearch_fundamentals.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L07_elasticsearch_fundamentals.py) | Inverted index, text vs keyword mappings, full-text queries, aggregations |
+| [L08_frontend_backend_integration.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L08_frontend_backend_integration.py) | REST loading/error states, WebSocket reconnection, SSE streaming |
+| [L09_building_ai_chat_uis.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L09_building_ai_chat_uis.py) | Optimistic updates, agent tool-call display, response state modeling |
+| [L10_fullstack_production_architecture.py](Full-Stack%20%26%20Frontend%20Essentials%20Notes/L10_fullstack_production_architecture.py) | Capstone: full-stack AI product reference architecture |
 
 ---
 
@@ -657,7 +738,9 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 **Then ML/AI:**
 
+8.5. Data Science Fundamentals Notes — probability, inference, optimization, and visualization underneath everything that follows
 9. ML Frameworks Notes — models
+9.5. GPU Computing & Distributed Training Notes — what's actually happening under L05's `DDP`/AMP calls, and how to scale training across many GPUs
 10. MLOps Notes — production ML systems
 11. LLM Frameworks Notes — AI applications
 
@@ -666,10 +749,12 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 **If you're targeting backend/platform roles specifically, follow the Backend & Future-Proof track:**
 
 12. FastAPI & Python Web Notes — production Python web services
+12.5. Full-Stack & Frontend Essentials Notes — React/Vue, Node/Express, Django, MongoDB, Elasticsearch, and the streaming UI patterns real AI products need
 13. System Design Notes — architecture fundamentals before you need them under pressure
 14. Go Notes — a second language for high-concurrency services
 15. Redis & Caching Notes — the caching layer underneath most of the above
 16. Observability Notes — you can't operate what you can't see
+16.5. DevOps & SRE Practices Notes — config management, incident command, error budgets, on-call
 17. API Design Notes — contracts between everything you've built
 18. Auth & Security Notes — non-negotiable for anything production-facing
 
@@ -692,12 +777,15 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ## Prerequisites
 
-- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG lessons
+- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG/Data Science Fundamentals/DevOps & SRE Practices lessons
 - Docker Desktop for Docker lessons
 - `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
 - PostgreSQL 15+ for SQL lessons
 - AWS account (free tier covers most Cloud lessons)
 - PySpark 3.4+ for Spark lessons
+- Node.js 20+ and MongoDB/Elasticsearch local instances (or free-tier cloud accounts) for Full-Stack & Frontend Essentials Notes
+- An NVIDIA GPU (consumer-class is enough for the code patterns; multi-GPU/cluster access is only needed to actually run the distributed examples at scale) for GPU Computing & Distributed Training Notes — code and concepts are readable/runnable in single-GPU or conceptual form without one
+- Ansible installed locally (or a couple of free-tier VMs) for DevOps & SRE Practices Notes' configuration-management lessons
 - g++ with C++20 support for C++ lessons
 - Go 1.22+ for Go lessons
 - Rust toolchain (rustup) for Rust lessons
@@ -709,4 +797,4 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ---
 
-*287 lessons across 27 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*336 lessons across 31 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
