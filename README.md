@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**23 domains · 210 lessons · Zero to architect (and researcher) in each**
+**25 domains · 261 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — a deeper, 25-lesson path to building LLMs from scratch, quantizing them, writing GPU kernels, and publishing original research).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
 
 ---
 
@@ -201,6 +201,26 @@ PySpark from RDDs to Structured Streaming, with deep dives into the Catalyst opt
 
 ---
 
+### [Data Engineering Notes](Data%20Engineering%20Notes/) — ETL, Airflow, Databricks, Snowflake, Azure Data Factory
+ETL/ELT fundamentals through the four major orchestration/warehouse platforms, data quality, and a full production data platform architecture.
+
+| File | Topic |
+|------|-------|
+| [L01_etl_fundamentals.py](Data%20Engineering%20Notes/L01_etl_fundamentals.py) | ETL vs ELT, idempotency, schema evolution |
+| [L02_data_modeling_and_pipelines.py](Data%20Engineering%20Notes/L02_data_modeling_and_pipelines.py) | Incremental loading, CDC, partitioning strategies |
+| [L03_airflow_fundamentals.py](Data%20Engineering%20Notes/L03_airflow_fundamentals.py) | DAGs, operators, scheduler/executor model, sensors |
+| [L04_airflow_production.py](Data%20Engineering%20Notes/L04_airflow_production.py) | TaskFlow API, dynamic task mapping, backfills, SLAs |
+| [L05_databricks_fundamentals.py](Data%20Engineering%20Notes/L05_databricks_fundamentals.py) | Workspace, clusters, Delta Lake, Unity Catalog |
+| [L06_databricks_production.py](Data%20Engineering%20Notes/L06_databricks_production.py) | Workflows, Delta Live Tables, Auto Loader |
+| [L07_snowflake_fundamentals.py](Data%20Engineering%20Notes/L07_snowflake_fundamentals.py) | Storage/compute separation, warehouses, Snowpipe, Time Travel |
+| [L08_snowflake_advanced.py](Data%20Engineering%20Notes/L08_snowflake_advanced.py) | Streams & Tasks, Snowpark, data sharing, RBAC |
+| [L09_azure_data_factory.py](Data%20Engineering%20Notes/L09_azure_data_factory.py) | Pipelines, linked services, Mapping Data Flows, integration runtimes |
+| [L10_orchestration_patterns.py](Data%20Engineering%20Notes/L10_orchestration_patterns.py) | Airflow vs ADF vs Databricks Workflows vs Dagster/Prefect |
+| [L11_data_quality_and_observability.py](Data%20Engineering%20Notes/L11_data_quality_and_observability.py) | Great Expectations/dbt tests, lineage, pipeline monitoring |
+| [L12_production_data_platform_architecture.py](Data%20Engineering%20Notes/L12_production_data_platform_architecture.py) | Capstone: medallion architecture, full reference platform |
+
+---
+
 ### [CICD Notes](CICD%20Notes/) — GitHub Actions to GitOps
 The full CI/CD pipeline: testing pyramid, Docker builds, deployment strategies, secrets, and ArgoCD GitOps.
 
@@ -281,8 +301,24 @@ From first API call to production multi-model systems with RAG, agents, guardrai
 
 ---
 
-### [Bash & Scripting Notes](Bash%20%26%20Scripting%20Notes/)
-Shell scripting for DevOps and automation tasks.
+### [Bash & Scripting Notes](Bash%20%26%20Scripting%20Notes/) — Shell Scripting for DevOps and Automation
+From the shebang line to production-grade automation scripts — variables, control flow, text processing, process management, networking, and real-world scripts you'd actually deploy.
+
+| File | Topic |
+|------|-------|
+| [L01_hello_world.sh](Bash%20%26%20Scripting%20Notes/L01_hello_world.sh) | Shebang, how bash executes a script, `echo`/`printf`, stdout vs stderr |
+| [L02_variables.sh](Bash%20%26%20Scripting%20Notes/L02_variables.sh) | Declaration, quoting rules, arrays, special variables, `readonly`, `export` |
+| [L03_strings.sh](Bash%20%26%20Scripting%20Notes/L03_strings.sh) | Length, substring, search/replace, case conversion, here-docs/here-strings |
+| [L04_control_flow.sh](Bash%20%26%20Scripting%20Notes/L04_control_flow.sh) | `if`/`case`/`while`/`for`/`until`, `[ ]` vs `[[ ]]` vs `(( ))`, `break`/`continue` |
+| [L05_functions.sh](Bash%20%26%20Scripting%20Notes/L05_functions.sh) | Arguments (`$1..$n`, `$@`), return codes vs echo, local scope, recursion |
+| [L06_input_output.sh](Bash%20%26%20Scripting%20Notes/L06_input_output.sh) | `read`, redirection (`>`, `>>`, `<`), pipes, process substitution, `tee`, `/dev/null` |
+| [L07_error_handling.sh](Bash%20%26%20Scripting%20Notes/L07_error_handling.sh) | `set -euo pipefail`, `trap` for cleanup, exit codes, the `ERR` trap |
+| [L08_files_and_dirs.sh](Bash%20%26%20Scripting%20Notes/L08_files_and_dirs.sh) | `find`, `stat`, `cp`/`mv`/`mkdir`/`chmod`, symlinks, `du`/`df` |
+| [L09_text_processing.sh](Bash%20%26%20Scripting%20Notes/L09_text_processing.sh) | `grep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `tr` |
+| [L10_processes.sh](Bash%20%26%20Scripting%20Notes/L10_processes.sh) | `ps`, `kill`, `jobs`, `bg`/`fg`, `&` + `wait`, `xargs` for parallel execution |
+| [L11_networking.sh](Bash%20%26%20Scripting%20Notes/L11_networking.sh) | `curl`, `wget`, `ssh`, `scp`, `nc`, `ping`, DNS lookups |
+| [L12_scripting_patterns.sh](Bash%20%26%20Scripting%20Notes/L12_scripting_patterns.sh) | Structured logging, `.env` config loading, file locking, idempotency, `main()` pattern |
+| [L13_automation_examples.sh](Bash%20%26%20Scripting%20Notes/L13_automation_examples.sh) | Log rotation, backup, deployment, health checks, service monitoring, cron setup |
 
 ---
 
@@ -520,6 +556,47 @@ From tensors and autograd through building a transformer from scratch, reproduci
 
 ---
 
+### [Agentic AI & RAG Notes](Agentic%20AI%20%26%20RAG%20Notes/) — The Full Modern Agent/RAG Ecosystem
+A fully self-contained, 26-lesson deep track covering every major framework in the modern agentic AI and RAG ecosystem — from embeddings and vector databases through RAG frameworks, agent orchestration paradigms, MCP, memory, security, observability, and a production reference architecture.
+
+| File | Topic |
+|------|-------|
+| **Phase 1 — Foundations** | |
+| [L01_llm_provider_landscape.py](Agentic%20AI%20%26%20RAG%20Notes/L01_llm_provider_landscape.py) | OpenAI, Anthropic, Gemini, Llama, Mistral, Cohere, Hugging Face, Ollama, vLLM |
+| [L02_embeddings_fundamentals.py](Agentic%20AI%20%26%20RAG%20Notes/L02_embeddings_fundamentals.py) | OpenAI/Cohere/Voyage/Sentence Transformers/BGE embeddings, similarity metrics |
+| [L03_vector_databases.py](Agentic%20AI%20%26%20RAG%20Notes/L03_vector_databases.py) | Pinecone, Weaviate, Qdrant, Milvus, Chroma, pgvector, Elasticsearch, Redis, MongoDB Atlas |
+| [L04_rag_fundamentals.py](Agentic%20AI%20%26%20RAG%20Notes/L04_rag_fundamentals.py) | End-to-end RAG architecture, chunking, reranking, RAGAS evaluation |
+| **Phase 2 — RAG Frameworks** | |
+| [L05_langchain_and_embedchain.py](Agentic%20AI%20%26%20RAG%20Notes/L05_langchain_and_embedchain.py) | LangChain's RAG primitives + LCEL, EmbedChain's high-level API |
+| [L06_llamaindex_deep_dive.py](Agentic%20AI%20%26%20RAG%20Notes/L06_llamaindex_deep_dive.py) | Index types, query engines, response synthesis |
+| [L07_haystack.py](Agentic%20AI%20%26%20RAG%20Notes/L07_haystack.py) | Explicit pipeline/component graph, hybrid retrieval, extractive readers |
+| [L08_dspy.py](Agentic%20AI%20%26%20RAG%20Notes/L08_dspy.py) | Signatures, modules, and automatic prompt optimization |
+| [L09_unstructured_and_document_processing.py](Agentic%20AI%20%26%20RAG%20Notes/L09_unstructured_and_document_processing.py) | Unstructured.io layout-aware parsing, table extraction, OCR |
+| [L10_graphrag.py](Agentic%20AI%20%26%20RAG%20Notes/L10_graphrag.py) | Knowledge graphs, community detection, Microsoft GraphRAG |
+| [L11_ragflow_and_production_rag_pipelines.py](Agentic%20AI%20%26%20RAG%20Notes/L11_ragflow_and_production_rag_pipelines.py) | RAGFlow, incremental re-indexing, multi-tenant isolation |
+| **Phase 3 — Agentic AI Orchestration Frameworks** | |
+| [L12_agent_fundamentals.py](Agentic%20AI%20%26%20RAG%20Notes/L12_agent_fundamentals.py) | The agent loop, ReAct pattern, tools, when NOT to use an agent |
+| [L13_langgraph_deep_dive.py](Agentic%20AI%20%26%20RAG%20Notes/L13_langgraph_deep_dive.py) | StateGraph, cycles, persistence, human-in-the-loop interrupts |
+| [L14_crewai.py](Agentic%20AI%20%26%20RAG%20Notes/L14_crewai.py) | Role-based agents, tasks, sequential/hierarchical process |
+| [L15_autogen_and_microsoft_agent_framework.py](Agentic%20AI%20%26%20RAG%20Notes/L15_autogen_and_microsoft_agent_framework.py) | Conversable agents, group chat, code execution, Microsoft Agent Framework |
+| [L16_emerging_agent_orchestrators.py](Agentic%20AI%20%26%20RAG%20Notes/L16_emerging_agent_orchestrators.py) | LlamaIndex Workflows, AWS Strands Agents, CAMEL, Agno |
+| [L17_multi_agent_patterns.py](Agentic%20AI%20%26%20RAG%20Notes/L17_multi_agent_patterns.py) | Choosing a paradigm; single-agent vs multi-agent |
+| **Phase 4 — Vendor Agent SDKs** | |
+| [L18_agent_sdks_landscape.py](Agentic%20AI%20%26%20RAG%20Notes/L18_agent_sdks_landscape.py) | OpenAI Agents SDK, PydanticAI, Semantic Kernel, Google ADK, AWS Bedrock Agents, Azure AI Foundry |
+| **Phase 5 — Protocol, Memory, Tool Use** | |
+| [L19_mcp_model_context_protocol.py](Agentic%20AI%20%26%20RAG%20Notes/L19_mcp_model_context_protocol.py) | MCP SDK, FastMCP, Registry, GitHub/Slack/Postgres/Drive/Filesystem servers |
+| [L20_agent_memory.py](Agentic%20AI%20%26%20RAG%20Notes/L20_agent_memory.py) | Mem0, Zep, Letta, LangGraph Memory; Redis/Postgres/Neo4j/Chroma backends |
+| [L21_tool_use_and_function_calling.py](Agentic%20AI%20%26%20RAG%20Notes/L21_tool_use_and_function_calling.py) | Tool schemas, selection at scale, error handling |
+| **Phase 6 — Security, Observability, Automation** | |
+| [L22_ai_agent_security.py](Agentic%20AI%20%26%20RAG%20Notes/L22_ai_agent_security.py) | Prompt injection, sandboxing, NeMo Guardrails, Presidio, Lakera Guard |
+| [L23_agent_observability_and_evaluation.py](Agentic%20AI%20%26%20RAG%20Notes/L23_agent_observability_and_evaluation.py) | LangSmith, Langfuse, Arize Phoenix, Ragas, TruLens, Promptfoo, Helicone |
+| [L24_agentic_automation_platforms.py](Agentic%20AI%20%26%20RAG%20Notes/L24_agentic_automation_platforms.py) | n8n, Zapier, Make, Power Automate, Temporal, Prefect, Kestra |
+| **Phase 7 — Capstone** | |
+| [L25_choosing_your_stack.py](Agentic%20AI%20%26%20RAG%20Notes/L25_choosing_your_stack.py) | A decision framework across the full ecosystem |
+| [L26_production_agentic_architecture.py](Agentic%20AI%20%26%20RAG%20Notes/L26_production_agentic_architecture.py) | Full reference architecture wiring every layer together |
+
+---
+
 ## Recommended Study Order
 
 **Start here if you're new to the stack:**
@@ -533,6 +610,7 @@ From tensors and autograd through building a transformer from scratch, reproduci
 
 6. Apache Kafka Notes — event streaming
 7. Apache Spark Notes — large-scale data processing
+7.5. Data Engineering Notes — ETL/orchestration across Airflow, Databricks, Snowflake, ADF
 8. Cloud Platforms Notes — where it all runs
 
 **Then ML/AI:**
@@ -564,11 +642,15 @@ From tensors and autograd through building a transformer from scratch, reproduci
 
 23. LLM Quantization & Inference Notes — an independent, self-contained 25-lesson deep track. Start anytime you have a GPU-capable machine and want to go deeper than the ML Frameworks/LLM Frameworks tracks; it assumes no prior transformer-internals knowledge and builds from tensors up through publishing.
 
+**If your goal is building agentic AI / RAG products specifically:**
+
+24. Agentic AI & RAG Notes — an independent, self-contained 26-lesson deep track covering the entire modern agent/RAG ecosystem end to end. No prior reading required — start here even before LLM Frameworks Notes if agentic/RAG systems are your primary focus; it re-covers RAG/agent fundamentals from scratch before going deep into the framework landscape.
+
 ---
 
 ## Prerequisites
 
-- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization lessons
+- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG lessons
 - Docker Desktop for Docker lessons
 - `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
 - PostgreSQL 15+ for SQL lessons
@@ -580,7 +662,9 @@ From tensors and autograd through building a transformer from scratch, reproduci
 - Node.js / a Cloudflare Workers account for Edge Computing lessons
 - A Linux host with a modern kernel (5.10+) for eBPF lessons — WSL2 or a VM on Windows
 - PyTorch + an NVIDIA GPU (consumer-class, e.g. RTX-series) for the CUDA/Triton kernel lessons (L17-L19) in LLM Quantization & Inference Notes — the rest of that domain's lessons run fine on CPU
+- A Databricks workspace trial, Snowflake trial account, and Azure subscription (free tier) for Data Engineering Notes' platform-specific lessons
+- An OpenAI/Anthropic/Cohere API key (or a local Ollama install) plus a vector DB account or local instance (Chroma/Qdrant) for Agentic AI & RAG Notes
 
 ---
 
-*210 lessons across 23 domains. Built to take you from zero to senior/architect level — and, in the research track, to publishable original work.*
+*261 lessons across 25 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
