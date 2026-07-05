@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**31 domains · 336 lessons · Zero to architect (and researcher) in each**
+**32 domains · 366 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; and GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call — and Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch — covering current backend/full-stack job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; and GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; and System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer/reverse-proxy/resource-allocation infra build — covering current backend/full-stack job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
 
 ---
 
@@ -479,6 +479,49 @@ CAP theorem through real end-to-end system designs (URL shortener, rate limiter,
 
 ---
 
+### [System Design Case Studies Notes](System%20Design%20Case%20Studies%20Notes/) — Google Meet, Docs, Spotify, Shazam, Reddit + Infra Deep Dives
+Goes deeper than System Design Notes' general fundamentals — 30 focused lessons deep-diving into SPECIFIC hard subsystems of well-known real products (not whole-app overviews), plus a from-scratch build-up of the load-balancer/reverse-proxy/resource-allocation infrastructure layer underlying all of them.
+
+| File | Topic |
+|------|-------|
+| **Google Meet — Real-Time Video** | |
+| [L01_webrtc_fundamentals_and_signaling.py](System%20Design%20Case%20Studies%20Notes/L01_webrtc_fundamentals_and_signaling.py) | ICE, STUN/TURN NAT traversal, the signaling server |
+| [L02_sfu_vs_mcu_architecture.py](System%20Design%20Case%20Studies%20Notes/L02_sfu_vs_mcu_architecture.py) | Selective forwarding vs composite/re-encode, simulcast |
+| [L03_adaptive_bitrate_and_network_resilience.py](System%20Design%20Case%20Studies%20Notes/L03_adaptive_bitrate_and_network_resilience.py) | GCC congestion control, FEC, adaptive jitter buffers |
+| [L04_screen_sharing_and_media_negotiation.py](System%20Design%20Case%20Studies%20Notes/L04_screen_sharing_and_media_negotiation.py) | Mid-call renegotiation, screen-share encoding profiles |
+| [L05_scaling_group_calls_and_turn_relay.py](System%20Design%20Case%20Studies%20Notes/L05_scaling_group_calls_and_turn_relay.py) | SFU cascading, geographic placement, TURN capacity planning |
+| **Google Docs — Collaborative Editing** | |
+| [L06_operational_transform_fundamentals.py](System%20Design%20Case%20Studies%20Notes/L06_operational_transform_fundamentals.py) | OT transformation, why naive concurrent edits corrupt documents |
+| [L07_crdts_for_collaborative_editing.py](System%20Design%20Case%20Studies%20Notes/L07_crdts_for_collaborative_editing.py) | Conflict-free replicated types, stable IDs, tombstones |
+| [L08_presence_cursors_and_awareness.py](System%20Design%20Case%20Studies%20Notes/L08_presence_cursors_and_awareness.py) | Ephemeral presence data, heartbeat cleanup, cursor anchoring |
+| [L09_offline_sync_and_conflict_resolution.py](System%20Design%20Case%20Studies%20Notes/L09_offline_sync_and_conflict_resolution.py) | Local-first buffering, merging hours of offline edits |
+| [L10_version_history_and_document_storage.py](System%20Design%20Case%20Studies%20Notes/L10_version_history_and_document_storage.py) | Operation logs, periodic snapshotting, point-in-time restore |
+| **Spotify + Shazam — Audio** | |
+| [L11_audio_streaming_and_cdn_delivery.py](System%20Design%20Case%20Studies%20Notes/L11_audio_streaming_and_cdn_delivery.py) | Popularity-skew-aware CDN caching, adaptive bitrate audio |
+| [L12_music_recommendation_systems.py](System%20Design%20Case%20Studies%20Notes/L12_music_recommendation_systems.py) | Collaborative + content-based filtering, cold start |
+| [L13_playlists_social_features_and_search.py](System%20Design%20Case%20Studies%20Notes/L13_playlists_social_features_and_search.py) | Fractional ordering, social graph, popularity-weighted search |
+| [L14_audio_fingerprinting_fundamentals.py](System%20Design%20Case%20Studies%20Notes/L14_audio_fingerprinting_fundamentals.py) | Spectrograms, constellation maps, time-invariant peak-pair hashing |
+| [L15_fingerprint_indexing_and_matching_at_scale.py](System%20Design%20Case%20Studies%20Notes/L15_fingerprint_indexing_and_matching_at_scale.py) | Inverted-index matching, time-offset histogram voting |
+| **Reddit / Social Feeds** | |
+| [L16_comment_tree_storage_at_scale.py](System%20Design%20Case%20Studies%20Notes/L16_comment_tree_storage_at_scale.py) | Adjacency list vs materialized path vs nested sets, lazy loading |
+| [L17_feed_ranking_algorithms.py](System%20Design%20Case%20Studies%20Notes/L17_feed_ranking_algorithms.py) | "Hot" time-decay formula, Wilson score "Best" ranking |
+| [L18_voting_systems_and_anti_fraud.py](System%20Design%20Case%20Studies%20Notes/L18_voting_systems_and_anti_fraud.py) | Event-sourced vote counters, brigading/bot detection |
+| [L19_fanout_on_write_vs_read.py](System%20Design%20Case%20Studies%20Notes/L19_fanout_on_write_vs_read.py) | The celebrity problem, hybrid push/pull feed architecture |
+| [L20_trending_and_hot_ranking_at_scale.py](System%20Design%20Case%20Studies%20Notes/L20_trending_and_hot_ranking_at_scale.py) | Sliding windows, baseline-deviation spikes, count-min sketch |
+| **Infrastructure Deep Dives — Load Balancers, Proxies, Resource Allocation** | |
+| [L21_load_balancing_fundamentals_l4_vs_l7.py](System%20Design%20Case%20Studies%20Notes/L21_load_balancing_fundamentals_l4_vs_l7.py) | Transport vs application layer load balancing |
+| [L22_load_balancing_algorithms.py](System%20Design%20Case%20Studies%20Notes/L22_load_balancing_algorithms.py) | Round robin, least connections, consistent hashing |
+| [L23_health_checks_and_failover.py](System%20Design%20Case%20Studies%20Notes/L23_health_checks_and_failover.py) | Active vs passive checks, failure/recovery thresholds |
+| [L24_reverse_proxy_internals.py](System%20Design%20Case%20Studies%20Notes/L24_reverse_proxy_internals.py) | Forward vs reverse proxy, header manipulation, URL rewriting |
+| [L25_nginx_vs_envoy_vs_haproxy.py](System%20Design%20Case%20Studies%20Notes/L25_nginx_vs_envoy_vs_haproxy.py) | Static vs dynamic config models, service-mesh data planes |
+| [L26_ssl_tls_termination.py](System%20Design%20Case%20Studies%20Notes/L26_ssl_tls_termination.py) | Terminate-and-forward vs re-encrypt vs passthrough, mTLS |
+| [L27_resource_allocation_and_bin_packing.py](System%20Design%20Case%20Studies%20Notes/L27_resource_allocation_and_bin_packing.py) | First fit/best fit, bin-packing vs spreading for fault tolerance |
+| [L28_autoscaling_strategies.py](System%20Design%20Case%20Studies%20Notes/L28_autoscaling_strategies.py) | Reactive, predictive, and scheduled scaling |
+| [L29_building_a_load_balancer_from_scratch.py](System%20Design%20Case%20Studies%20Notes/L29_building_a_load_balancer_from_scratch.py) | A genuinely runnable Python load balancer implementation |
+| [L30_capstone_full_infra_stack.py](System%20Design%20Case%20Studies%20Notes/L30_capstone_full_infra_stack.py) | Capstone: full request trace, mapped back to every earlier case study |
+
+---
+
 ### [Go Notes](Go%20Notes/) — Concurrent Backend Services
 Goroutines/channels through gRPC, profiling, and production deployment.
 
@@ -751,6 +794,7 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 12. FastAPI & Python Web Notes — production Python web services
 12.5. Full-Stack & Frontend Essentials Notes — React/Vue, Node/Express, Django, MongoDB, Elasticsearch, and the streaming UI patterns real AI products need
 13. System Design Notes — architecture fundamentals before you need them under pressure
+13.5. System Design Case Studies Notes — once fundamentals click, go deep on real products (Google Meet, Docs, Spotify, Shazam, Reddit) plus a from-scratch load-balancer/infra build
 14. Go Notes — a second language for high-concurrency services
 15. Redis & Caching Notes — the caching layer underneath most of the above
 16. Observability Notes — you can't operate what you can't see
@@ -797,4 +841,4 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ---
 
-*336 lessons across 31 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*366 lessons across 32 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
