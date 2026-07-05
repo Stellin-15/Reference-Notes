@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**25 domains · 261 lessons · Zero to architect (and researcher) in each**
+**27 domains · 287 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; and Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, covering current backend job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
 
 ---
 
@@ -169,6 +169,26 @@ From the commit log model to production cluster operations, schema evolution, an
 
 ---
 
+### [Event-Driven & Real-Time AI Systems Notes](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/) — NATS, Hatchet, Multi-Model Routing
+Event-driven architecture fundamentals through NATS JetStream, durable execution (Hatchet), real-time trigger evaluation, multi-model LLM gateways, and event-driven ML deployment — the lower-operational-overhead alternative/complement to Kafka-based streaming for moderate-throughput, real-time AI systems.
+
+| File | Topic |
+|------|-------|
+| [L01_event_driven_architecture_fundamentals.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L01_event_driven_architecture_fundamentals.py) | Event-driven vs batch vs request-response, event granularity |
+| [L02_nats_jetstream_fundamentals.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L02_nats_jetstream_fundamentals.py) | Core NATS pub/sub, JetStream persistence, streams/consumers |
+| [L03_nats_vs_kafka_decision_framework.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L03_nats_vs_kafka_decision_framework.py) | Throughput ceiling, operational overhead, when each wins |
+| [L04_hatchet_durable_execution.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L04_hatchet_durable_execution.py) | Durable retries/timeouts/fan-out vs Temporal and Celery |
+| [L05_realtime_trigger_evaluation_systems.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L05_realtime_trigger_evaluation_systems.py) | Building a Trigger Hub — subject design, batch-to-real-time latency |
+| [L06_websocket_streaming_architecture.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L06_websocket_streaming_architecture.py) | Connection lifecycle, JWT reauth, backpressure handling |
+| [L07_multi_model_llm_routing.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L07_multi_model_llm_routing.py) | Cost-based routing and fallback chains across Claude/GPT/Gemini |
+| [L08_llm_gateway_patterns.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L08_llm_gateway_patterns.py) | Per-tenant quotas, unified logging, centralized secrets |
+| [L09_event_driven_ml_cicd.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L09_event_driven_ml_cicd.py) | Registry alias-change triggers, canary rollout, auto-rollback |
+| [L10_real_time_inference_serving.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L10_real_time_inference_serving.py) | Latency budgets, hybrid fast/slow model serving |
+| [L11_durable_workflows_for_ai_agents.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L11_durable_workflows_for_ai_agents.py) | Wrapping long-running agent workflows in durable execution |
+| [L12_production_realtime_ai_platform_architecture.py](Event-Driven%20%26%20Real-Time%20AI%20Systems%20Notes/L12_production_realtime_ai_platform_architecture.py) | Capstone: full reference architecture |
+
+---
+
 ### [Kubernetes Notes](Kubernetes%20Notes/) — From Pod Spec to Production Multi-AZ Clusters
 Covers the full Kubernetes object model, storage, autoscaling, Helm, Operators, and GitOps.
 
@@ -282,6 +302,26 @@ End-to-end MLOps: from first MLflow run to a complete production ML platform wit
 | [L06_monitoring_and_drift.py](MLOps%20Notes/L06_monitoring_and_drift.py) | PSI, KS test, Evidently AI, Prometheus metrics, retraining triggers |
 | [L07_model_registry_and_versioning.py](MLOps%20Notes/L07_model_registry_and_versioning.py) | MLflow Registry, DVC, semantic versioning, shadow mode, canary routing |
 | [L08_production_mlops_architecture.py](MLOps%20Notes/L08_production_mlops_architecture.py) | Full 6-layer ML platform, CI/CD for ML, cost optimization, incident response |
+
+---
+
+### [Feature Stores & Modern Data Lake Notes](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/) — Trino, Iceberg, ScyllaDB
+Goes deeper than MLOps Notes L03's Feast introduction — the three-tier feature architecture, Trino+Iceberg as a lakehouse query layer, the Redis+ScyllaDB hybrid online store, point-in-time joins implemented from scratch, feature/model lineage, and the Kernels-as-a-Service polymorphic compute pattern.
+
+| File | Topic |
+|------|-------|
+| [L01_feature_store_fundamentals.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L01_feature_store_fundamentals.py) | Training-serving skew, offline/online store split, PIT correctness |
+| [L02_three_tier_feature_architecture.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L02_three_tier_feature_architecture.py) | Tier 1 ingestion / Tier 2 Feature Management API / Tier 3 online serving |
+| [L03_feast_deep_dive.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L03_feast_deep_dive.py) | Feature views, entities, feature services, materialization |
+| [L04_point_in_time_joins.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L04_point_in_time_joins.py) | Implementing PIT-correct joins, label leakage bugs, measuring skew |
+| [L05_trino_fundamentals.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L05_trino_fundamentals.py) | Distributed SQL engine, connectors, federated queries |
+| [L06_apache_iceberg.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L06_apache_iceberg.py) | Open table format internals, schema/partition evolution, time travel |
+| [L07_trino_plus_iceberg_lakehouse.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L07_trino_plus_iceberg_lakehouse.py) | Combining Trino+Iceberg into a hybrid on-prem/cloud lakehouse |
+| [L08_scylladb_and_online_serving.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L08_scylladb_and_online_serving.py) | Wide-column stores, the Redis (hot) + ScyllaDB (bulk) hybrid pattern |
+| [L09_feature_and_model_lineage.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L09_feature_and_model_lineage.py) | Lineage graphs, "which models depend on this PII feature" |
+| [L10_data_event_management_systems.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L10_data_event_management_systems.py) | The DEMS/Lasso event-ledger pattern for lineage/drift/SLA analytics |
+| [L11_polymorphic_compute_platforms.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L11_polymorphic_compute_platforms.py) | Kernels-as-a-Service: ProcessProxy, Kernel Gateway, token propagation |
+| [L12_production_feature_platform_architecture.py](Feature%20Stores%20%26%20Modern%20Data%20Lake%20Notes/L12_production_feature_platform_architecture.py) | Capstone: full reference architecture |
 
 ---
 
@@ -444,6 +484,8 @@ Password hashing through OAuth2/OIDC, RBAC/OPA, secrets management, and full sec
 | [L09_tls_and_network_security.py](Auth%20%26%20Security%20Notes/L09_tls_and_network_security.py) | TLS 1.3, cert-manager, Kubernetes NetworkPolicy |
 | [L10_mtls_and_service_security.py](Auth%20%26%20Security%20Notes/L10_mtls_and_service_security.py) | Mutual TLS, SPIFFE/SPIRE, JWT service tokens, zero-trust mesh |
 | [L11_security_architecture.py](Auth%20%26%20Security%20Notes/L11_security_architecture.py) | Defense in depth, zero trust, SBOM/cosign, STRIDE threat modeling |
+| [L12_security_scanning_and_dependency_management.py](Auth%20%26%20Security%20Notes/L12_security_scanning_and_dependency_management.py) | Bandit SAST, Dependabot/SCA, remediating XSS/SSRF/LFI concretely |
+| [L13_api_gateway_multitenant_isolation.py](Auth%20%26%20Security%20Notes/L13_api_gateway_multitenant_isolation.py) | Zuplo-style gateway tenant isolation, per-tenant rate limits, defense in depth |
 
 ---
 
@@ -667,4 +709,4 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ---
 
-*261 lessons across 25 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*287 lessons across 27 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
