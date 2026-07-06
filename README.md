@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**32 domains · 366 lessons · Zero to architect (and researcher) in each**
+**38 domains · 414 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; and GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; and System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer/reverse-proxy/resource-allocation infra build — covering current backend/full-stack job-market demand plus skills expected to stay in demand as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling; and NoSQL & Specialized Databases — Cassandra, DynamoDB, Neo4j, and time-series databases), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; Mobile Development — iOS/Swift, Android/Kotlin, React Native, Flutter; Testing & QA Engineering — test doubles, contract testing, mutation testing; System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer build; Distributed Systems Theory — Paxos, Raft, quorums, vector clocks; Blockchain & Web3 — smart contracts, consensus, EVM, dApp security; and OS & Networking Internals — scheduling, virtual memory, TCP/IP, syscalls — covering current backend/full-stack job-market demand plus the CS fundamentals and emerging-tech literacy expected to stay valuable as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
 
 ---
 
@@ -137,6 +137,22 @@ PostgreSQL dialect throughout. Covers query writing, performance tuning, and dat
 
 ---
 
+### [NoSQL & Specialized Databases Notes](NoSQL%20%26%20Specialized%20Databases%20Notes/) — Cassandra, DynamoDB, Neo4j, Time-Series DBs
+Goes beyond SQL Notes and MongoDB (Full-Stack & Frontend Essentials Notes L06) to survey the full NoSQL landscape — key-value, wide-column, graph, and time-series databases — plus, critically, the decision framework for choosing (and combining) among them.
+
+| File | Topic |
+|------|-------|
+| [L01_nosql_fundamentals_and_cap_tradeoffs.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L01_nosql_fundamentals_and_cap_tradeoffs.py) | The four NoSQL data models, CAP theorem in practice (AP vs CP) |
+| [L02_cassandra_deep_dive.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L02_cassandra_deep_dive.py) | Partition/clustering keys, query-first schema design, ring architecture |
+| [L03_dynamodb_deep_dive.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L03_dynamodb_deep_dive.py) | GSIs, capacity modes, single-table design |
+| [L04_neo4j_and_graph_databases.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L04_neo4j_and_graph_databases.py) | Property graphs, Cypher, why multi-hop traversal beats SQL joins |
+| [L05_time_series_databases.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L05_time_series_databases.py) | Time-based partitioning, downsampling, retention policies |
+| [L06_choosing_the_right_nosql_database.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L06_choosing_the_right_nosql_database.py) | A decision framework — including when the answer is "use SQL" |
+| [L07_polyglot_persistence.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L07_polyglot_persistence.py) | Change Data Capture, sync consistency windows, operational overhead |
+| [L08_capstone_polyglot_architecture.py](NoSQL%20%26%20Specialized%20Databases%20Notes/L08_capstone_polyglot_architecture.py) | Capstone: a full 7-database ride-sharing platform architecture |
+
+---
+
 ### [Docker Notes](Docker%20Notes/) — Containers from Internals to Production Security
 From Linux namespaces and cgroups to production-hardened multi-service deployments.
 
@@ -254,6 +270,22 @@ The full CI/CD pipeline: testing pyramid, Docker builds, deployment strategies, 
 | [L06_argocd_gitops.yaml](CICD%20Notes/L06_argocd_gitops.yaml) | GitOps model, ApplicationSet, sync waves, rollback |
 | [L07_secrets_and_security.yaml](CICD%20Notes/L07_secrets_and_security.yaml) | OIDC, Vault, sealed secrets, SLSA supply chain security |
 | [L08_production_pipeline.yaml](CICD%20Notes/L08_production_pipeline.yaml) | Full pipeline: lint → test → build → scan → sign → deploy → verify |
+
+---
+
+### [Testing & QA Engineering Notes](Testing%20%26%20QA%20Engineering%20Notes/) — Test Pyramid, Mocks, Contract Testing, Mutation Testing
+Goes deeper than CICD Notes L03's testing-pyramid overview — test doubles done right, integration testing with test containers, Playwright/Cypress E2E, consumer-driven contract testing, mutation testing, and systematic flaky-test elimination.
+
+| File | Topic |
+|------|-------|
+| [L01_testing_fundamentals_and_the_test_pyramid.py](Testing%20%26%20QA%20Engineering%20Notes/L01_testing_fundamentals_and_the_test_pyramid.py) | The pyramid shape, the "ice cream cone" anti-pattern |
+| [L02_unit_testing_and_test_doubles.py](Testing%20%26%20QA%20Engineering%20Notes/L02_unit_testing_and_test_doubles.py) | Dummies, stubs, mocks, fakes, spies — precisely distinguished |
+| [L03_integration_testing_strategies.py](Testing%20%26%20QA%20Engineering%20Notes/L03_integration_testing_strategies.py) | Testcontainers, sandboxed third-party APIs |
+| [L04_e2e_testing_with_playwright_and_cypress.py](Testing%20%26%20QA%20Engineering%20Notes/L04_e2e_testing_with_playwright_and_cypress.py) | Auto-waiting, Page Object Model, API-based test setup |
+| [L05_contract_testing.py](Testing%20%26%20QA%20Engineering%20Notes/L05_contract_testing.py) | Consumer-driven contracts, Pact, provider verification |
+| [L06_mutation_testing_and_test_quality.py](Testing%20%26%20QA%20Engineering%20Notes/L06_mutation_testing_and_test_quality.py) | Why coverage isn't quality — mutation score explained |
+| [L07_test_data_management_and_flaky_tests.py](Testing%20%26%20QA%20Engineering%20Notes/L07_test_data_management_and_flaky_tests.py) | Test factories, injectable clocks, systematic flakiness diagnosis |
+| [L08_capstone_production_test_strategy.py](Testing%20%26%20QA%20Engineering%20Notes/L08_capstone_production_test_strategy.py) | Capstone: a complete, layered test strategy |
 
 ---
 
@@ -463,6 +495,22 @@ The frontend and adjacent-backend half of "full-stack": React/Vue component mode
 
 ---
 
+### [Mobile Development Notes](Mobile%20Development%20Notes/) — iOS, Android, React Native, Flutter
+The mobile-specific half of "full-stack" — the app lifecycle and offline-first constraints unique to mobile, native development (Swift/SwiftUI, Kotlin/Compose), cross-platform frameworks (React Native, Flutter), and the native-vs-cross-platform decision framework.
+
+| File | Topic |
+|------|-------|
+| [L01_mobile_fundamentals_and_platform_landscape.py](Mobile%20Development%20Notes/L01_mobile_fundamentals_and_platform_landscape.py) | App lifecycle, offline-first as a default expectation |
+| [L02_ios_swift_and_swiftui.py](Mobile%20Development%20Notes/L02_ios_swift_and_swiftui.py) | Optionals, value vs reference types, declarative SwiftUI |
+| [L03_android_kotlin_and_jetpack_compose.py](Mobile%20Development%20Notes/L03_android_kotlin_and_jetpack_compose.py) | Null safety, coroutines, Jetpack Compose + state hoisting |
+| [L04_react_native.py](Mobile%20Development%20Notes/L04_react_native.py) | The bridge architecture, native modules |
+| [L05_flutter.py](Mobile%20Development%20Notes/L05_flutter.py) | Dart, the widget tree, Skia/Impeller rendering |
+| [L06_mobile_networking_and_offline_first_patterns.py](Mobile%20Development%20Notes/L06_mobile_networking_and_offline_first_patterns.py) | Local-first storage, sync queues, delta sync |
+| [L07_mobile_cicd_and_app_store_deployment.py](Mobile%20Development%20Notes/L07_mobile_cicd_and_app_store_deployment.py) | Code signing, app store review, staged rollouts, OTA updates |
+| [L08_capstone_cross_platform_decision_framework.py](Mobile%20Development%20Notes/L08_capstone_cross_platform_decision_framework.py) | Capstone: the native-vs-cross-platform decision framework |
+
+---
+
 ### [System Design Notes](System%20Design%20Notes/) — Scalable Architecture Fundamentals
 CAP theorem through real end-to-end system designs (URL shortener, rate limiter, notification system, job scheduler).
 
@@ -519,6 +567,22 @@ Goes deeper than System Design Notes' general fundamentals — 30 focused lesson
 | [L28_autoscaling_strategies.py](System%20Design%20Case%20Studies%20Notes/L28_autoscaling_strategies.py) | Reactive, predictive, and scheduled scaling |
 | [L29_building_a_load_balancer_from_scratch.py](System%20Design%20Case%20Studies%20Notes/L29_building_a_load_balancer_from_scratch.py) | A genuinely runnable Python load balancer implementation |
 | [L30_capstone_full_infra_stack.py](System%20Design%20Case%20Studies%20Notes/L30_capstone_full_infra_stack.py) | Capstone: full request trace, mapped back to every earlier case study |
+
+---
+
+### [Distributed Systems Theory Notes](Distributed%20Systems%20Theory%20Notes/) — Paxos, Raft, Quorums, Vector Clocks
+The theory underneath System Design Notes' CAP theorem and System Design Case Studies Notes' load-balancing quorums — consensus algorithms, distributed transactions, logical time, and distributed locking, built from first principles.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals_and_fallacies.py](Distributed%20Systems%20Theory%20Notes/L01_fundamentals_and_fallacies.py) | The Fallacies of Distributed Computing, partial failure |
+| [L02_paxos_consensus.py](Distributed%20Systems%20Theory%20Notes/L02_paxos_consensus.py) | The original consensus algorithm, majority quorums |
+| [L03_raft_consensus.py](Distributed%20Systems%20Theory%20Notes/L03_raft_consensus.py) | Leader election, log replication, why Raft displaced Paxos |
+| [L04_distributed_transactions.py](Distributed%20Systems%20Theory%20Notes/L04_distributed_transactions.py) | 2PC's blocking weakness, 3PC, the Saga pattern |
+| [L05_vector_clocks_and_logical_time.py](Distributed%20Systems%20Theory%20Notes/L05_vector_clocks_and_logical_time.py) | Lamport timestamps vs vector clocks, causality vs concurrency |
+| [L06_quorum_systems.py](Distributed%20Systems%20Theory%20Notes/L06_quorum_systems.py) | The N/R/W model, tunable per-operation consistency |
+| [L07_distributed_locking_and_leader_election.py](Distributed%20Systems%20Theory%20Notes/L07_distributed_locking_and_leader_election.py) | Lease-based locks, the GC-pause problem, fencing tokens |
+| [L08_capstone_distributed_kv_store.py](Distributed%20Systems%20Theory%20Notes/L08_capstone_distributed_kv_store.py) | Capstone: a working distributed key-value store |
 
 ---
 
@@ -642,6 +706,38 @@ Cloudflare Workers/edge fundamentals through WebAssembly, edge AI inference, and
 | [L06_edge_security.js](Edge%20Computing%20Notes/L06_edge_security.js) | WAF, bot management, edge JWT validation, signed URLs |
 | [L07_edge_networking.js](Edge%20Computing%20Notes/L07_edge_networking.js) | Anycast/BGP, HTTP/3 QUIC, Early Hints, origin shield |
 | [L08_production_edge.js](Edge%20Computing%20Notes/L08_production_edge.js) | Multi-CDN failover, canary deploys, cost optimization, data residency |
+
+---
+
+### [Blockchain & Web3 Notes](Blockchain%20%26%20Web3%20Notes/) — Smart Contracts, Consensus, EVM, dApps
+Hash-chained blocks and tamper-evidence, Proof of Work/Stake consensus (a Byzantine-fault-tolerant relative of Distributed Systems Theory Notes' Paxos/Raft), Solidity smart contracts, the EVM's gas model, dApp architecture, wallets, Layer 2 scaling, and smart contract security.
+
+| File | Topic |
+|------|-------|
+| [L01_blockchain_fundamentals.py](Blockchain%20%26%20Web3%20Notes/L01_blockchain_fundamentals.py) | Hash chaining, Merkle trees, tamper-evidence |
+| [L02_consensus_mechanisms_pow_and_pos.py](Blockchain%20%26%20Web3%20Notes/L02_consensus_mechanisms_pow_and_pos.py) | Proof of Work, Proof of Stake, the double-spend problem |
+| [L03_smart_contracts_with_solidity.py](Blockchain%20%26%20Web3%20Notes/L03_smart_contracts_with_solidity.py) | Immutable deployed code, view vs non-view functions |
+| [L04_evm_internals_and_gas.py](Blockchain%20%26%20Web3%20Notes/L04_evm_internals_and_gas.py) | The EVM's determinism requirement, gas cost economics |
+| [L05_dapp_architecture.py](Blockchain%20%26%20Web3%20Notes/L05_dapp_architecture.py) | Wallet connections, node providers, why dApps aren't fully decentralized |
+| [L06_wallets_and_key_management.py](Blockchain%20%26%20Web3%20Notes/L06_wallets_and_key_management.py) | Public/private keys, seed phrases, hot vs cold wallets |
+| [L07_layer2_scaling_solutions.py](Blockchain%20%26%20Web3%20Notes/L07_layer2_scaling_solutions.py) | Optimistic rollups, ZK rollups, state channels |
+| [L08_capstone_smart_contract_security.py](Blockchain%20%26%20Web3%20Notes/L08_capstone_smart_contract_security.py) | Capstone: reentrancy, access control, common exploits |
+
+---
+
+### [OS & Networking Internals Notes](OS%20%26%20Networking%20Internals%20Notes/) — Scheduling, Virtual Memory, TCP/IP, Syscalls
+The CS-fundamentals layer underneath DevOps & SRE Practices Notes and eBPF Notes — process scheduling, virtual memory/paging, filesystem internals, TCP/IP and DNS mechanics, the kernel/user-space boundary, and interrupts/DMA.
+
+| File | Topic |
+|------|-------|
+| [L01_process_scheduling_and_context_switching.py](OS%20%26%20Networking%20Internals%20Notes/L01_process_scheduling_and_context_switching.py) | Round robin, priority aging, context switch cost |
+| [L02_virtual_memory_and_paging.py](OS%20%26%20Networking%20Internals%20Notes/L02_virtual_memory_and_paging.py) | Page tables, minor/major page faults, thrashing |
+| [L03_file_systems_internals.py](OS%20%26%20Networking%20Internals%20Notes/L03_file_systems_internals.py) | Inodes, hard vs symbolic links, journaling |
+| [L04_tcp_ip_deep_dive.py](OS%20%26%20Networking%20Internals%20Notes/L04_tcp_ip_deep_dive.py) | Three-way handshake, sequence numbers, sliding window |
+| [L05_dns_resolution_internals.py](OS%20%26%20Networking%20Internals%20Notes/L05_dns_resolution_internals.py) | The root→TLD→authoritative chain, TTL propagation delay |
+| [L06_syscalls_and_kernel_userspace_boundary.py](OS%20%26%20Networking%20Internals%20Notes/L06_syscalls_and_kernel_userspace_boundary.py) | Why syscalls cost real overhead, buffering to minimize them |
+| [L07_interrupts_and_io.py](OS%20%26%20Networking%20Internals%20Notes/L07_interrupts_and_io.py) | Hardware interrupts, DMA, why busy-waiting is usually wrong |
+| [L08_capstone_connecting_to_ebpf_and_observability.py](OS%20%26%20Networking%20Internals%20Notes/L08_capstone_connecting_to_ebpf_and_observability.py) | Capstone: a full request trace, connected to eBPF's hook points |
 
 ---
 
@@ -777,6 +873,7 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 6. Apache Kafka Notes — event streaming
 7. Apache Spark Notes — large-scale data processing
 7.5. Data Engineering Notes — ETL/orchestration across Airflow, Databricks, Snowflake, ADF
+7.7. NoSQL & Specialized Databases Notes — Cassandra, DynamoDB, Neo4j, and time-series databases, once SQL Notes' relational foundation is solid
 8. Cloud Platforms Notes — where it all runs
 
 **Then ML/AI:**
@@ -793,12 +890,15 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 12. FastAPI & Python Web Notes — production Python web services
 12.5. Full-Stack & Frontend Essentials Notes — React/Vue, Node/Express, Django, MongoDB, Elasticsearch, and the streaming UI patterns real AI products need
+12.7. Mobile Development Notes — iOS/Swift, Android/Kotlin, React Native, Flutter, and offline-first mobile architecture
 13. System Design Notes — architecture fundamentals before you need them under pressure
 13.5. System Design Case Studies Notes — once fundamentals click, go deep on real products (Google Meet, Docs, Spotify, Shazam, Reddit) plus a from-scratch load-balancer/infra build
+13.7. Distributed Systems Theory Notes — Paxos, Raft, quorums, vector clocks — the theory underneath both System Design domains above
 14. Go Notes — a second language for high-concurrency services
 15. Redis & Caching Notes — the caching layer underneath most of the above
 16. Observability Notes — you can't operate what you can't see
 16.5. DevOps & SRE Practices Notes — config management, incident command, error budgets, on-call
+16.7. Testing & QA Engineering Notes — test doubles, contract testing, mutation testing, flaky-test elimination
 17. API Design Notes — contracts between everything you've built
 18. Auth & Security Notes — non-negotiable for anything production-facing
 
@@ -806,7 +906,9 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 19. Rust Notes — where performance-critical backend work is heading
 20. Edge Computing Notes — WASM/V8-isolate compute is growing fast
+20.5. Blockchain & Web3 Notes — smart contracts, consensus, dApp architecture, for teams touching fintech/crypto
 21. eBPF Notes — the new foundation for observability/networking/security tooling
+21.5. OS & Networking Internals Notes — the CS-fundamentals layer underneath eBPF and DevOps & SRE Practices Notes; read this FIRST if either felt like it assumed too much
 22. Platform Engineering Notes — the discipline tying all of the above together at org scale
 
 **If your goal is research and hardware-efficiency work specifically (writing papers, building inference tooling):**
@@ -821,7 +923,7 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ## Prerequisites
 
-- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG/Data Science Fundamentals/DevOps & SRE Practices lessons
+- Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG/Data Science Fundamentals/DevOps & SRE Practices/Distributed Systems Theory/NoSQL & Specialized Databases/Testing & QA Engineering/Blockchain & Web3/OS & Networking Internals lessons
 - Docker Desktop for Docker lessons
 - `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
 - PostgreSQL 15+ for SQL lessons
@@ -834,11 +936,14 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 - Go 1.22+ for Go lessons
 - Rust toolchain (rustup) for Rust lessons
 - Node.js / a Cloudflare Workers account for Edge Computing lessons
-- A Linux host with a modern kernel (5.10+) for eBPF lessons — WSL2 or a VM on Windows
+- A Linux host with a modern kernel (5.10+) for eBPF and OS & Networking Internals lessons — WSL2 or a VM on Windows
 - PyTorch + an NVIDIA GPU (consumer-class, e.g. RTX-series) for the CUDA/Triton kernel lessons (L17-L19) in LLM Quantization & Inference Notes — the rest of that domain's lessons run fine on CPU
 - A Databricks workspace trial, Snowflake trial account, and Azure subscription (free tier) for Data Engineering Notes' platform-specific lessons
 - An OpenAI/Anthropic/Cohere API key (or a local Ollama install) plus a vector DB account or local instance (Chroma/Qdrant) for Agentic AI & RAG Notes
+- A free Cassandra/DynamoDB Local/Neo4j Desktop instance for NoSQL & Specialized Databases Notes — every lesson's code is runnable/readable as a pattern reference without a live cluster
+- Xcode (Mac only) for iOS lessons, Android Studio for Android lessons, Node.js for React Native/Flutter lessons in Mobile Development Notes — the code and concepts are readable without every SDK installed
+- A free testnet account (e.g. via MetaMask + a Sepolia faucet) for Blockchain & Web3 Notes' smart contract lessons — no real funds needed, and the concepts are readable without ever deploying anything
 
 ---
 
-*366 lessons across 32 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*414 lessons across 38 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
