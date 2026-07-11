@@ -2,9 +2,9 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**38 domains · 414 lessons · Zero to architect (and researcher) in each**
+**39 domains · 422 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling; and NoSQL & Specialized Databases — Cassandra, DynamoDB, Neo4j, and time-series databases), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; Mobile Development — iOS/Swift, Android/Kotlin, React Native, Flutter; Testing & QA Engineering — test doubles, contract testing, mutation testing; System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer build; Distributed Systems Theory — Paxos, Raft, quorums, vector clocks; Blockchain & Web3 — smart contracts, consensus, EVM, dApp security; and OS & Networking Internals — scheduling, virtual memory, TCP/IP, syscalls — covering current backend/full-stack job-market demand plus the CS fundamentals and emerging-tech literacy expected to stay valuable as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability).
+Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling; and NoSQL & Specialized Databases — Cassandra, DynamoDB, Neo4j, and time-series databases), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; Mobile Development — iOS/Swift, Android/Kotlin, React Native, Flutter; Testing & QA Engineering — test doubles, contract testing, mutation testing; System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer build; Distributed Systems Theory — Paxos, Raft, quorums, vector clocks; Blockchain & Web3 — smart contracts, consensus, EVM, dApp security; and OS & Networking Internals — scheduling, virtual memory, TCP/IP, syscalls — covering current backend/full-stack job-market demand plus the CS fundamentals and emerging-tech literacy expected to stay valuable as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability — plus Azure AI Services, an 8-lesson track covering the Azure-native AI stack specifically: Azure OpenAI Service, Cognitive Services, Azure AI Search, Semantic Kernel, the AI Foundry Agent Service, and the AI Hub gateway/Responsible AI governance patterns Azure-shop job postings expect).
 
 ---
 
@@ -433,6 +433,22 @@ From first API call to production multi-model systems with RAG, agents, guardrai
 | [L06_llamaindex.py](LLM%20Frameworks%20Notes/L06_llamaindex.py) | Document loaders, index types, SubQuestion engine, routing, evaluation |
 | [L07_aws_bedrock.py](LLM%20Frameworks%20Notes/L07_aws_bedrock.py) | Converse API, streaming, tool use, Knowledge Bases, Guardrails |
 | [L08_production_llm_architecture.py](LLM%20Frameworks%20Notes/L08_production_llm_architecture.py) | Prompt versioning, injection defense, LLM router, semantic cache, observability |
+
+---
+
+### [Azure AI Services Notes](Azure%20AI%20Services%20Notes/) — Azure OpenAI, Cognitive Services, AI Search, Semantic Kernel
+The Azure-native AI stack specifically: what's different about running LLM/RAG/agentic systems on Azure versus the provider-agnostic patterns in LLM Frameworks Notes and Agentic AI & RAG Notes — deployments/quota/PTU, Azure's built-in content filtering, Semantic Kernel, the AI Foundry Agent Service, and the AI Hub gateway + Responsible AI governance patterns regulated Azure shops require.
+
+| File | Topic |
+|------|-------|
+| [L01_azure_ai_landscape.py](Azure%20AI%20Services%20Notes/L01_azure_ai_landscape.py) | Resource/deployment model, regional quota, managed identity + RBAC |
+| [L02_azure_openai_service.py](Azure%20AI%20Services%20Notes/L02_azure_openai_service.py) | Deployments, content filtering, Standard vs PTU capacity, model selection |
+| [L03_cognitive_services_speech_vision_language.py](Azure%20AI%20Services%20Notes/L03_cognitive_services_speech_vision_language.py) | Speech STT/TTS, Vision OCR, Language sentiment/PII/NER, Document Intelligence |
+| [L04_azure_ai_search.py](Azure%20AI%20Services%20Notes/L04_azure_ai_search.py) | Hybrid keyword+vector search, semantic ranking, indexers/skillsets, retrieval-time ACL |
+| [L05_azure_machine_learning.py](Azure%20AI%20Services%20Notes/L05_azure_machine_learning.py) | Workspaces, compute clusters, MLflow-compatible tracking, registry, managed endpoints |
+| [L06_semantic_kernel.py](Azure%20AI%20Services%20Notes/L06_semantic_kernel.py) | Kernel, native/semantic plugin duality, planners, memory, vs LangChain/Agent Framework |
+| [L07_azure_agentic_stack_and_ai_hub_gateway.py](Azure%20AI%20Services%20Notes/L07_azure_agentic_stack_and_ai_hub_gateway.py) | AI Foundry Agent Service, human-in-the-loop tools, the AI Hub gateway pattern |
+| [L08_production_architecture_and_responsible_ai.py](Azure%20AI%20Services%20Notes/L08_production_architecture_and_responsible_ai.py) | Capstone: groundedness/bias/latency evaluation, Content Safety, observability, governance |
 
 ---
 
@@ -919,6 +935,10 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 24. Agentic AI & RAG Notes — an independent, self-contained 26-lesson deep track covering the entire modern agent/RAG ecosystem end to end. No prior reading required — start here even before LLM Frameworks Notes if agentic/RAG systems are your primary focus; it re-covers RAG/agent fundamentals from scratch before going deep into the framework landscape.
 
+**If you're targeting an Azure-native AI Engineer role specifically:**
+
+25. Azure AI Services Notes — an independent, self-contained 8-lesson track covering the Azure-specific AI stack: Azure OpenAI Service, Azure AI Services (Speech/Vision/Language/Document Intelligence), Azure AI Search, Azure Machine Learning, Semantic Kernel, the AI Foundry Agent Service, and the AI Hub gateway/Responsible AI governance patterns Azure shops expect. Read LLM Frameworks Notes and/or Agentic AI & RAG Notes first for the provider-agnostic concepts this domain assumes (RAG, embeddings, agents, tool use) — this domain covers what's specifically DIFFERENT about doing them on Azure.
+
 ---
 
 ## Prerequisites
@@ -943,7 +963,8 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 - A free Cassandra/DynamoDB Local/Neo4j Desktop instance for NoSQL & Specialized Databases Notes — every lesson's code is runnable/readable as a pattern reference without a live cluster
 - Xcode (Mac only) for iOS lessons, Android Studio for Android lessons, Node.js for React Native/Flutter lessons in Mobile Development Notes — the code and concepts are readable without every SDK installed
 - A free testnet account (e.g. via MetaMask + a Sepolia faucet) for Blockchain & Web3 Notes' smart contract lessons — no real funds needed, and the concepts are readable without ever deploying anything
+- An Azure subscription (free tier) with Azure OpenAI access approved for Azure AI Services Notes — the code and concepts are readable as a pattern reference without a live resource, but calling the APIs requires the access request Microsoft still gates Azure OpenAI behind
 
 ---
 
-*414 lessons across 38 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*422 lessons across 39 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
