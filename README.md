@@ -2,9 +2,11 @@
 
 A structured self-study library covering the full modern backend + ML engineering stack — from zero to senior/architect level. Every lesson is heavily commented with real-world production examples, common mistakes, and trading/data system use cases.
 
-**39 domains · 422 lessons · Zero to architect (and researcher) in each**
+**44 domains · 450 lessons · Zero to architect (and researcher) in each**
 
-Domains are split into three tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling; and NoSQL & Specialized Databases — Cassandra, DynamoDB, Neo4j, and time-series databases), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; Mobile Development — iOS/Swift, Android/Kotlin, React Native, Flutter; Testing & QA Engineering — test doubles, contract testing, mutation testing; System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer build; Distributed Systems Theory — Paxos, Raft, quorums, vector clocks; Blockchain & Web3 — smart contracts, consensus, EVM, dApp security; and OS & Networking Internals — scheduling, virtual memory, TCP/IP, syscalls — covering current backend/full-stack job-market demand plus the CS fundamentals and emerging-tech literacy expected to stay valuable as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability — plus Azure AI Services, an 8-lesson track covering the Azure-native AI stack specifically: Azure OpenAI Service, Cognitive Services, Azure AI Search, Semantic Kernel, the AI Foundry Agent Service, and the AI Hub gateway/Responsible AI governance patterns Azure-shop job postings expect).
+Start with the **Theoretical Foundations track** (Classical ML Theory, Deep Learning Theory, and LLM Core Theory Notes) — this is the prerequisite math/mechanism layer underneath every other domain below: bias-variance and VC theory, why regularization/ensembling/kernels work (derived, not asserted), backprop and optimizer/normalization/attention mechanics built from scratch, and how modern LLMs actually work end to end (tokenization → Transformer architecture → pretraining → RLHF/DPO → inference → evaluation/safety). Every lesson in these three domains includes a from-scratch runnable derivation, a case-studies capstone comparing multiple valid engineering answers to the same problem, and a 200-question deep-technical-interview file. Everything else in this repo assumes this foundation.
+
+Domains are then split into three further tracks: the original **ML/Data Platform track** (Python through LLM Frameworks, plus Data Engineering — ETL, Airflow, Databricks, Snowflake, Azure Data Factory; Event-Driven & Real-Time AI Systems — NATS, Hatchet, multi-model LLM routing; Feature Stores & Modern Data Lake Notes — Trino, Iceberg, ScyllaDB, feature/model lineage; Data Science Fundamentals — probability, statistical inference, optimization, and visualization underneath every ML domain; GPU Computing & Distributed Training — CUDA, NCCL, DeepSpeed, and multi-GPU scaling; and NoSQL & Specialized Databases — Cassandra, DynamoDB, Neo4j, and time-series databases), the **Backend & Future-Proof track** (FastAPI through Platform Engineering, plus DevOps & SRE Practices — config management, incident command, error budgets, on-call; Full-Stack & Frontend Essentials — React, Vue, Node, Django, MongoDB, Elasticsearch; Mobile Development — iOS/Swift, Android/Kotlin, React Native, Flutter; Testing & QA Engineering — test doubles, contract testing, mutation testing; System Design Case Studies — 30 deep-dive lessons on Google Meet, Docs, Spotify, Shazam, and Reddit's hardest subsystems plus a from-scratch load-balancer build; Distributed Systems Theory — Paxos, Raft, quorums, vector clocks; Blockchain & Web3 — smart contracts, consensus, EVM, dApp security; and OS & Networking Internals — scheduling, virtual memory, TCP/IP, syscalls — covering current backend/full-stack job-market demand plus the CS fundamentals and emerging-tech literacy expected to stay valuable as the market shifts), and the **Research & Hardware Specialization track** (LLM Quantization & Inference — building/quantizing LLMs from scratch and writing GPU kernels — plus Agentic AI & RAG — a 26-lesson deep track covering the full modern agent/RAG ecosystem: LangGraph, CrewAI, AutoGen, LlamaIndex, Haystack, DSPy, GraphRAG, MCP, vector databases, agent memory, AI security, and observability — plus Azure AI Services, an 8-lesson track covering the Azure-native AI stack specifically: Azure OpenAI Service, Cognitive Services, Azure AI Search, Semantic Kernel, the AI Foundry Agent Service, and the AI Hub gateway/Responsible AI governance patterns Azure-shop job postings expect).
 
 ---
 
@@ -31,6 +33,58 @@ Read a domain top-to-bottom, or jump to the lesson that matches your current lev
 ---
 
 ## Domains
+
+### [Classical ML Theory Notes](Classical%20ML%20Theory%20Notes/) — Statistical Learning Theory, Derived From First Principles
+The math and "why" underneath every sklearn/XGBoost call in ML Frameworks Notes — bias-variance decomposition, VC dimension/PAC bounds, and No Free Lunch derived (not asserted) in L01, then MLE/MAP-derived linear models, bagging-vs-boosting variance/bias mechanics, SVM duality and the kernel trick, EM/GMM, PCA via SVD, and rigorous model-evaluation/feature-selection theory. Every lesson has runnable from-scratch code proving its central claim numerically. Read this BEFORE ML Frameworks Notes — it's the theory layer that domain's API usage sits on top of.
+
+| File | Topic |
+|------|-------|
+| [L01_statistical_learning_foundations.py](Classical%20ML%20Theory%20Notes/L01_statistical_learning_foundations.py) | Bias-variance decomposition (derived), VC dimension/PAC bounds, No Free Lunch |
+| [L02_linear_models_and_regularization.py](Classical%20ML%20Theory%20Notes/L02_linear_models_and_regularization.py) | OLS as Gaussian MLE, ridge/lasso as MAP, why L1 zeroes coefficients (geometrically) |
+| [L03_trees_and_ensemble_theory.py](Classical%20ML%20Theory%20Notes/L03_trees_and_ensemble_theory.py) | Entropy/Gini splits, bagging's variance-reduction math, gradient boosting as function-space gradient descent |
+| [L04_svm_and_kernel_methods.py](Classical%20ML%20Theory%20Notes/L04_svm_and_kernel_methods.py) | Margin maximization → Lagrangian dual, support vectors from KKT, Mercer's theorem |
+| [L05_probabilistic_models_and_em.py](Classical%20ML%20Theory%20Notes/L05_probabilistic_models_and_em.py) | Naive Bayes' independence assumption, EM derived as an ELBO lower-bound argument |
+| [L06_unsupervised_learning_theory.py](Classical%20ML%20Theory%20Notes/L06_unsupervised_learning_theory.py) | PCA via eigendecomposition AND SVD (proven equivalent), Eckart-Young, k-means as degenerate EM |
+| [L07_model_evaluation_theory.py](Classical%20ML%20Theory%20Notes/L07_model_evaluation_theory.py) | Why accuracy fails under imbalance (proven), ROC/PR-AUC, calibration vs discrimination, bootstrap significance |
+| [L08_feature_engineering_and_selection_theory.py](Classical%20ML%20Theory%20Notes/L08_feature_engineering_and_selection_theory.py) | Mutual information vs correlation, curse of dimensionality (quantified), filter/wrapper/embedded selection |
+| [L09_case_studies_multiple_valid_approaches.py](Classical%20ML%20Theory%20Notes/L09_case_studies_multiple_valid_approaches.py) | Capstone: 4 business problems, 3 defensible algorithm choices each, with comparison tables |
+| [L10_200_deep_technical_questions.md](Classical%20ML%20Theory%20Notes/L10_200_deep_technical_questions.md) | 200 derivation-level interview questions, including multi-answer contested ones |
+
+---
+
+### [Deep Learning Theory Notes](Deep%20Learning%20Theory%20Notes/) — Backprop Through Attention, Built From Scratch
+Goes under the hood of ML Frameworks Notes' PyTorch calls — backpropagation derived and implemented as a 100-line autograd engine, optimizers (SGD→Momentum→RMSProp→Adam) each derived as a fix for a specific, nameable failure mode, Xavier/He initialization and BatchNorm/LayerNorm derived from variance-propagation math, dropout proven equivalent to bagging, CNNs derived as weight-constrained fully-connected layers, RNN vanishing gradients quantified and LSTM's fix derived, and self-attention derived as the direct architectural answer to that same vanishing-gradient problem.
+
+| File | Topic |
+|------|-------|
+| [L01_backprop_from_the_chain_rule.py](Deep%20Learning%20Theory%20Notes/L01_backprop_from_the_chain_rule.py) | A from-scratch reverse-mode autodiff engine; trains a real MLP on XOR |
+| [L02_optimizers.py](Deep%20Learning%20Theory%20Notes/L02_optimizers.py) | SGD→Momentum→RMSProp→Adam, each derived as a fix for the prior one's specific failure |
+| [L03_initialization_and_normalization.py](Deep%20Learning%20Theory%20Notes/L03_initialization_and_normalization.py) | Xavier/He derived from variance propagation, BatchNorm vs LayerNorm's actual axes |
+| [L04_regularization_theory.py](Deep%20Learning%20Theory%20Notes/L04_regularization_theory.py) | Dropout as implicit bagging, why weight decay ≠ L2 under Adam (AdamW derived) |
+| [L05_cnns_from_convolution_math.py](Deep%20Learning%20Theory%20Notes/L05_cnns_from_convolution_math.py) | Convolution as a constrained fully-connected layer, receptive field growth, equivariance |
+| [L06_rnn_lstm_gru_and_vanishing_gradients.py](Deep%20Learning%20Theory%20Notes/L06_rnn_lstm_gru_and_vanishing_gradients.py) | Vanishing gradients quantified as a Jacobian product, LSTM's additive fix derived |
+| [L07_attention_from_scratch.py](Deep%20Learning%20Theory%20Notes/L07_attention_from_scratch.py) | Q/K/V, scaled dot-product attention, why sqrt(d_k) is mathematically necessary |
+| [L08_case_studies_multiple_valid_approaches.py](Deep%20Learning%20Theory%20Notes/L08_case_studies_multiple_valid_approaches.py) | Capstone: 4 DL system problems, 3 defensible architecture choices each |
+| [L09_200_deep_technical_questions.md](Deep%20Learning%20Theory%20Notes/L09_200_deep_technical_questions.md) | 200 derivation-level interview questions, including multi-answer contested ones |
+
+---
+
+### [LLM Core Theory Notes](LLM%20Core%20Theory%20Notes/) — How Modern LLMs Actually Work, End to End
+Distinct from LLM Frameworks Notes (API/framework usage) — this is the mechanism layer: BPE tokenization built from scratch, the full Transformer block assembled from primitives derived in Deep Learning Theory Notes (multi-head attention, residual+LayerNorm placement proven consequential), sinusoidal/RoPE/ALiBi positional encoding derived and compared, causal LM as autoregressive MLE plus Chinchilla scaling laws derived as a constrained optimization, SFT/RLHF/DPO with DPO's loss derived algebraically from RLHF's own closed-form optimum, KV-cache/sampling-strategy internals, and why prompt injection is structural (not a patchable bug).
+
+| File | Topic |
+|------|-------|
+| [L01_tokenization_bpe.py](LLM%20Core%20Theory%20Notes/L01_tokenization_bpe.py) | BPE trained from scratch, byte-level BPE's closed-vocabulary guarantee |
+| [L02_transformer_architecture.py](LLM%20Core%20Theory%20Notes/L02_transformer_architecture.py) | Multi-head attention, FFN nonlinearity's role, pre-norm vs post-norm (proven consequential) |
+| [L03_positional_encoding.py](LLM%20Core%20Theory%20Notes/L03_positional_encoding.py) | Sinusoidal encoding's relative-offset linearity, RoPE's rotation math, ALiBi's extrapolation |
+| [L04_pretraining_objectives_and_scaling_laws.py](LLM%20Core%20Theory%20Notes/L04_pretraining_objectives_and_scaling_laws.py) | Causal LM as autoregressive MLE, Chinchilla's N/D allocation derived via Lagrangian optimization |
+| [L05_finetuning_sft_rlhf_dpo.py](LLM%20Core%20Theory%20Notes/L05_finetuning_sft_rlhf_dpo.py) | SFT, Bradley-Terry reward models, why the KL penalty is mathematically necessary, DPO derived from RLHF |
+| [L06_inference_internals.py](LLM%20Core%20Theory%20Notes/L06_inference_internals.py) | KV caching's O(T²)→O(T) fix quantified, greedy/temperature/top-k/top-p each derived |
+| [L07_evaluation_and_alignment_safety.py](LLM%20Core%20Theory%20Notes/L07_evaluation_and_alignment_safety.py) | Perplexity vs task accuracy, LLM-as-judge biases, prompt injection as an architectural gap |
+| [L08_case_studies_multiple_valid_approaches.py](LLM%20Core%20Theory%20Notes/L08_case_studies_multiple_valid_approaches.py) | Capstone: 4 LLM-system problems, 3 defensible approaches each |
+| [L09_200_deep_technical_questions.md](LLM%20Core%20Theory%20Notes/L09_200_deep_technical_questions.md) | 200 derivation-level interview questions, including multi-answer contested ones |
+
+---
 
 ### [C++ Notes](C++%20Notes/) — HFT & Systems Programming
 C++ from first principles to a complete HFT trading system. Every lesson ties the language feature to a real trading use case (order books, market data, latency).
@@ -877,7 +931,14 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ## Recommended Study Order
 
-**Start here if you're new to the stack:**
+**Start here, before anything else — the theory foundation:**
+0. Classical ML Theory Notes (L01-L10) — bias-variance/VC theory, then linear models, trees/ensembles, SVM, EM, PCA, and evaluation theory, all derived from first principles
+0.3. Deep Learning Theory Notes (L01-L09) — backprop, optimizers, initialization/normalization, regularization, CNNs, RNN/LSTM, and attention, each built from scratch
+0.6. LLM Core Theory Notes (L01-L09) — tokenization, Transformer architecture, positional encoding, pretraining/scaling laws, SFT/RLHF/DPO, inference internals, and evaluation/safety — how a modern LLM actually works end to end
+
+These three domains are read in order (each cites and builds on the previous) and are the prerequisite layer for ML Frameworks Notes, GPU Computing & Distributed Training Notes, MLOps Notes, LLM Frameworks Notes, and Agentic AI & RAG Notes below — read them first even if you're eager to jump to a framework-usage domain, since those domains assume this mechanism-level understanding rather than re-deriving it.
+
+**Then, if you're new to the stack generally:**
 1. Python Notes (L01-L08) — language foundation everything else builds on
 2. SQL Notes (L01-L08) — every system needs a database
 3. Docker Notes (L01-L08) — package and run everything
@@ -943,6 +1004,7 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ## Prerequisites
 
+- Python 3.11+ and NumPy for Classical ML Theory/Deep Learning Theory/LLM Core Theory Notes — every lesson's demonstrations run on CPU with no GPU, deep learning framework, or LLM API access required; these are from-scratch derivations, not framework tutorials
 - Python 3.11+ for Python/ML/MLOps/LLM/FastAPI/Redis/Observability/API Design/Auth/Platform Engineering/LLM Quantization/Data Engineering/Agentic AI & RAG/Data Science Fundamentals/DevOps & SRE Practices/Distributed Systems Theory/NoSQL & Specialized Databases/Testing & QA Engineering/Blockchain & Web3/OS & Networking Internals lessons
 - Docker Desktop for Docker lessons
 - `kubectl` + a cluster (minikube/kind/EKS) for Kubernetes, Platform Engineering, and eBPF/Cilium lessons
@@ -967,4 +1029,4 @@ A fully self-contained, 26-lesson deep track covering every major framework in t
 
 ---
 
-*422 lessons across 39 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
+*450 lessons across 44 domains. Built to take you from zero to senior/architect level — and, in the research tracks, to publishable original work and production-grade agentic systems.*
