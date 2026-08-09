@@ -1,0 +1,316 @@
+# WHAT: Four realistic CI/CD problems, each solved with THREE genuinely
+#       different, individually defensible approaches drawn from L01-L08
+#       -- with an explicit comparison table and reasoning for why each
+#       answer is valid under different constraints.
+# WHY:  "Blue/green or canary," "sign every artifact or not," "how much
+#       to test in CI vs staging" are all questions L01-L08 gave you real
+#       tools for, not one universal answer -- this lesson is about the
+#       decision process under real release-risk and team-maturity
+#       constraints.
+# LEVEL: Capstone -- read after L01-L08.
+#
+# This file is reference material, a YAML document used purely for its
+# readable structure -- not meant to be applied as a pipeline config.
+# Before checking each comparison table, try reconstructing it yourself
+# using only L01-L08's concepts.
+
+case_study_1:
+  title: Choosing a deployment strategy for a stateful, hard-to-roll-back service
+  setup: >
+    A service manages long-lived WebSocket connections (a real-time
+    chat backend) -- an in-place restart drops all connected clients,
+    and the team is choosing a deployment strategy (L05) balancing
+    deploy safety against added infrastructure cost.
+  approach_a:
+    name: Rolling deployment (L05)
+    why_valid: >
+      Lowest infrastructure overhead -- no duplicate environment needed,
+      and for STATELESS services this is often perfectly adequate,
+      gradually replacing instances while readiness checks gate traffic.
+    cost: >
+      For THIS specific stateful, long-lived-connection service, a
+      rolling deployment still drops every connection on the instances
+      being replaced at that moment -- L05's "gradual replacement"
+      property doesn't help a workload where even ONE instance's
+      replacement means real, visible disruption for whichever clients
+      were connected to it; rolling doesn't solve the actual problem
+      this service has.
+  approach_b:
+    name: Blue/green deployment (L05) with connection draining
+    why_valid: >
+      Per L05, blue/green lets the NEW version fully start and become
+      healthy before ANY traffic shifts, and -- critically for this
+      service -- the cutover can be paired with graceful connection
+      draining (stop routing NEW connections to the old version, let
+      existing connections finish naturally or migrate client-side)
+      rather than an abrupt cutover, directly addressing the stateful-
+      connection problem rolling deployment doesn't.
+    cost: >
+      Requires running a full duplicate (green) environment during the
+      transition -- real, if temporary, infrastructure cost -- and
+      "graceful draining" for long-lived WebSocket connections can take
+      a genuinely long time (a chat session might stay open for hours),
+      meaning the OLD environment must be kept running and paying for
+      itself far longer than a typical stateless blue/green cutover
+      would need.
+  approach_c:
+    name: >
+      Client-side reconnection logic (application-level) PLUS a simpler
+      rolling or blue/green deploy -- treat connection drops as an
+      EXPECTED, handled event rather than something the deployment
+      strategy alone must prevent
+    why_valid: >
+      Reframes the problem -- if the CLIENT application already handles
+      reconnection gracefully (automatic retry with backoff, seamless
+      to the end user), the deployment strategy doesn't need to bear
+      the full burden of avoiding ANY connection drop; a simpler,
+      cheaper deployment strategy becomes acceptable because the actual
+      user-facing disruption is minimized at the application layer
+      instead.
+    cost: >
+      Requires the CLIENT (potentially a mobile app or web frontend the
+      backend team doesn't fully control, or that takes its own release
+      cycle to update) to actually implement this reconnection logic
+      well -- a real, cross-team dependency and genuine engineering
+      work outside the deployment pipeline itself, and doesn't help
+      users mid-action during the brief reconnection window (e.g.
+      someone mid-message-send might still see a visible hiccup).
+  comparison_table: >
+    | Approach | Connection-drop impact | Infra cost | Cross-team dependency |
+    |----------|------------------------------|----------------|------------------------------|
+    | A: rolling | Real, unaddressed | Lowest | None |
+    | B: blue/green + draining | Minimized, but slow cutover | Highest | None |
+    | C: client-side reconnection + simple deploy | Minimized via graceful client recovery | Low | Yes (client team) |
+    B is the strongest backend-only fix; C is often the most PRACTICAL
+    long-term answer for a real chat product (client reconnection logic
+    is genuinely valuable regardless of deployment strategy, since
+    clients also drop connections for reasons having nothing to do with
+    deploys) -- many production systems do both.
+
+case_study_2:
+  title: How much testing belongs in the CI pipeline itself vs. a separate staging environment
+  setup: >
+    A team's CI pipeline (L03) currently runs unit tests only, taking 3
+    minutes; integration and E2E tests exist but only run manually
+    against staging before a release, an infrequent and easily-skipped
+    step.
+  approach_a:
+    name: Move ALL tests (unit, integration, E2E) into the CI pipeline, on every PR (L03)
+    why_valid: >
+      Per L03's testing-pyramid discussion, catching issues as EARLY as
+      possible (at PR time, not release time) is generally cheaper to
+      fix and prevents broken code from ever reaching staging/main at
+      all -- the strongest "shift left" answer, maximizing the chance
+      any given bug is caught before merge.
+    cost: >
+      E2E tests are typically the SLOWEST, most flaky tier of the
+      testing pyramid (Testing & QA Engineering Notes L01) -- running
+      them on EVERY PR can turn a 3-minute CI run into 20+ minutes,
+      directly hurting developer iteration speed, and flaky E2E tests
+      blocking merges erode trust in CI ("just rerun it, it's flaky")
+      in a way that itself becomes a real cultural/velocity cost.
+  approach_b:
+    name: >
+      Keep CI fast (unit + a SMALL set of critical-path integration
+      tests only); run the FULL integration/E2E suite automatically
+      against a staging deploy AFTER merge, gating the next release
+      (not gating the PR merge itself)
+    why_valid: >
+      Balances L03's testing-pyramid shape (fast, cheap tests gate
+      merges; slower, more expensive tests validate the merged result)
+      against developer iteration speed -- PRs merge quickly on a fast
+      signal, while the fuller safety net still runs automatically
+      (not manually, fixing this case study's stated "infrequent and
+      easily-skipped" problem) just at a different point in the
+      pipeline.
+    cost: >
+      A bug that would have been caught by a slow E2E test is now
+      caught AFTER merge (on the automated post-merge run against
+      staging) rather than before -- meaning a broken commit briefly
+      exists on the main branch (even if it's caught quickly and
+      automatically afterward), a real, if usually small, cost relative
+      to approach A's stronger "never let it merge broken" guarantee.
+  approach_c:
+    name: >
+      Risk-based test selection -- use test-impact analysis (which
+      tests actually cover the files changed in this PR) to run only
+      the RELEVANT subset of integration/E2E tests per PR, rather than
+      the full suite or none of it
+    why_valid: >
+      Directly targets the ACTUAL tradeoff -- most PRs don't touch code
+      every E2E test covers, so running only the tests genuinely
+      relevant to the changed files can catch most of what a full E2E
+      run would, at a fraction of the time cost, getting closer to A's
+      safety with closer to B's speed.
+    cost: >
+      Requires real tooling investment to build/maintain accurate test-
+      impact mappings (which tests cover which code paths) -- a
+      genuinely harder infrastructure problem than either A or B, and
+      an imperfect mapping means SOME relevant tests get incorrectly
+      skipped for a given change, a subtler, harder-to-notice risk than
+      A/B's more straightforward "run everything" or "run everything,
+      just later" tradeoffs.
+  comparison_table: >
+    | Approach | PR merge speed | Safety (bug caught before merge?) | Tooling investment |
+    |----------|---------------------|------------------------------------------|---------------------------|
+    | A: everything in CI | Slowest | Highest | Lowest |
+    | B: fast CI + post-merge full suite | Fast | Lower (caught after merge) | Low |
+    | C: risk-based test selection | Fast (usually) | Medium-high (depends on mapping accuracy) | Highest |
+    B is the standard, pragmatic default for most teams; C is worth the
+    investment specifically once a team has grown large/fast enough
+    that B's post-merge-only E2E coverage is catching a meaningfully
+    costly volume of post-merge breakage.
+
+case_study_3:
+  title: Deciding how rigorously to sign and verify build artifacts (supply-chain security, L07)
+  setup: >
+    A mid-sized company ships a handful of internal services; no
+    current artifact signing/provenance verification exists, and the
+    security team has flagged this as a gap without yet mandating a
+    specific fix.
+  approach_a:
+    name: Full SLSA-aligned supply-chain security (cosign signing, SBOM generation, provenance attestation, L07)
+    why_valid: >
+      Per L07, this is the strongest, most complete answer -- every
+      artifact is cryptographically signed, an SBOM documents exact
+      dependencies, and provenance attestation proves WHERE and HOW an
+      artifact was built, closing essentially the full range of supply-
+      chain attack vectors L07 covers.
+    cost: >
+      Real, nontrivial setup and OPERATIONAL complexity -- key
+      management for signing, SBOM-generation tooling integrated into
+      every build, and provenance verification enforced at deploy time
+      are all genuine engineering investments; for a company that
+      hasn't done ANY of this yet, going straight to full SLSA
+      alignment is a large, front-loaded project relative to the
+      team's current baseline.
+  approach_b:
+    name: Artifact signing only (cosign), no SBOM/provenance yet (L07)
+    why_valid: >
+      Addresses the highest-leverage single piece first -- verifying
+      that a deployed artifact is genuinely the one CI built (not
+      tampered with in transit or substituted) closes a real, serious
+      attack vector with comparatively low setup cost (cosign
+      integration into an existing pipeline is a relatively contained
+      change) -- a reasonable, incremental first step rather than an
+      all-or-nothing commitment.
+    cost: >
+      Leaves real gaps A would close -- no visibility into WHAT
+      dependencies are actually in a given artifact (an SBOM gap,
+      relevant if a dependency is later found to have a known CVE, since
+      there's no fast way to know which artifacts are affected) and no
+      proof of exactly how/where the artifact was built (a provenance
+      gap) -- a deliberately incomplete, staged answer, not a full
+      solution.
+  approach_c:
+    name: >
+      Prioritize based on the security team's actual THREAT MODEL for
+      this specific company -- e.g. if the real concern is "did our CI
+      get compromised," focus first on provenance attestation; if it's
+      "are we running artifacts with known vulnerable dependencies,"
+      focus first on SBOM generation + scanning, rather than defaulting
+      to "signing first" as a generic best practice
+    why_valid: >
+      Directly ties the FIRST investment to whatever risk the
+      organization's actual threat model considers most pressing, per
+      L07's broader point that supply-chain security tooling should
+      match a genuine risk assessment, not just implement measures in
+      whatever order a checklist happens to list them -- can mean the
+      MOST relevant protection for this specific company gets deployed
+      first, rather than following a generic prioritization.
+    cost: >
+      Requires the security team to have ALREADY done real threat-
+      modeling work to inform this prioritization -- if that hasn't
+      happened yet, this approach requires doing IT first, a real
+      prerequisite step, and reordering priorities away from a well-
+      trodden default sequence (like B's "sign first") means potentially
+      reinventing sequencing decisions the wider security community has
+      already converged on for good reason.
+  comparison_table: >
+    | Approach | Coverage completeness | Setup cost | Requires prior threat-modeling |
+    |----------|----------------------------|----------------|--------------------------------------|
+    | A: full SLSA alignment | Highest | Highest | No (comprehensive by default) |
+    | B: signing only | Partial (closes the biggest single gap) | Low-medium | No |
+    | C: threat-model-driven prioritization | Depends on the model's accuracy | Depends | Yes |
+    For a team with NO existing supply-chain security investment and no
+    urgent, specific threat driving the decision, B is the pragmatic
+    starting point (a well-established "highest leverage first"
+    default); C is stronger specifically when the security team HAS
+    done real threat-modeling and has a genuine, specific reason to
+    prioritize differently.
+
+case_study_4:
+  title: Managing secrets used by CI/CD pipelines themselves (not application runtime secrets, L07)
+  setup: >
+    CI pipelines need credentials to deploy to cloud infrastructure,
+    publish artifacts, and notify external services -- currently stored
+    as long-lived static secrets in the CI platform's secret store.
+  approach_a:
+    name: Keep long-lived static secrets in the CI platform's built-in secret store (current state)
+    why_valid: >
+      Zero migration effort, works with essentially any CI platform out
+      of the box, and for a team with very few pipelines and low actual
+      risk tolerance concern, this may simply not yet be worth changing
+      -- not every team needs to solve every theoretically-possible
+      security improvement immediately.
+    cost: >
+      Long-lived static credentials are a well-documented, high-value
+      attack target -- if leaked (via a misconfigured log, a compromised
+      dependency in the build, or a malicious PR from an external
+      contributor triggering a workflow), they remain valid and usable
+      until someone notices and manually rotates them, a real, often
+      slow-to-detect exposure window.
+  approach_b:
+    name: OIDC-based keyless authentication (L02, L07) -- the CI platform exchanges a short-lived OIDC token for temporary cloud credentials, no static secret stored at all
+    why_valid: >
+      Per L02/L07, this directly eliminates the long-lived-credential
+      risk entirely -- there's no static secret to leak in the first
+      place, since credentials are minted fresh, short-lived, and
+      scoped per pipeline run via a trust relationship between the CI
+      platform and the cloud provider, the modern best-practice answer
+      for exactly this problem.
+    cost: >
+      Requires the cloud provider to support OIDC federation (most major
+      ones do, but this is a real prerequisite to check) and a genuine,
+      if usually one-time, setup effort to configure the trust
+      relationship and appropriate scoping/permissions correctly --
+      getting the scoping too broad defeats much of the security
+      benefit, so this isn't purely a drop-in replacement without
+      careful configuration.
+  approach_c:
+    name: >
+      Short-lived secrets issued from a dedicated secrets manager
+      (Vault or similar) with automatic rotation, rather than OIDC
+      federation directly
+    why_valid: >
+      Appropriate when the CI platform or target system DOESN'T support
+      OIDC federation (a real constraint some legacy or third-party
+      systems have) -- automatic rotation still meaningfully shrinks the
+      exposure window relative to approach A's fully static secrets,
+      even without eliminating the "a secret exists and is stored
+      somewhere" risk category entirely the way B does.
+    cost: >
+      Requires operating (or subscribing to) a secrets-manager
+      deployment, and a leaked short-lived secret is still USABLE for
+      its remaining validity window (shorter than A's indefinite
+      window, but nonzero) -- a genuine, real improvement over A, but
+      not as strong a guarantee as B's "no static secret to leak in the
+      first place" property where OIDC federation is actually available.
+  comparison_table: >
+    | Approach | Exposure window if leaked | Setup complexity | Requires provider OIDC support |
+    |----------|---------------------------------|------------------------|--------------------------------------|
+    | A: long-lived static secrets | Until manually noticed/rotated | Lowest | No |
+    | B: OIDC keyless auth | None (nothing static to leak) | Medium (trust config) | Yes |
+    | C: secrets manager with rotation | Bounded (rotation interval) | Medium-high | No |
+    B is the strongest answer wherever the CI platform and cloud
+    provider both support OIDC federation, which covers most modern
+    setups (GitHub Actions to AWS/GCP/Azure, per L02/L07) -- C is the
+    correct fallback specifically for systems that don't support OIDC;
+    A is the reasonable-but-improvable starting point most teams
+    actually begin from, worth migrating away from as soon as B or C is
+    practical to set up.
+
+note: >
+  This file is reference material -- see the WHAT/WHY header and the
+  four case studies above. It is not intended to be applied as a
+  pipeline configuration.

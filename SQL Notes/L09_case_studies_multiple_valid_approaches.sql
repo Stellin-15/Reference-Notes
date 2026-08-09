@@ -1,0 +1,322 @@
+-- WHAT: Four realistic PostgreSQL data-modeling/query problems, each
+--       solved with THREE genuinely different, individually defensible
+--       approaches drawn from L01-L08 -- with an explicit comparison
+--       table and reasoning for why each answer is valid under
+--       different constraints, in the same spirit as this repo's
+--       theory-domain capstones.
+-- WHY:  "What's the right way to model X" or "what's the fastest query
+--       for Y" are usually malformed questions without knowing the
+--       actual read/write pattern, data volume, and consistency
+--       requirements -- L01-L08 gave you the tools (joins, window
+--       functions, CTEs, indexes, JSONB, partitioning); this lesson is
+--       about choosing between them under real constraints.
+-- LEVEL: Capstone -- read after L01-L08.
+--
+-- This file is reference material, not meant to be run top-to-bottom
+-- against a live database. Before checking each comparison table, try
+-- reconstructing it yourself using only L01-L08's concepts.
+
+
+-- ============================================================================
+-- CASE STUDY 1 — MODELING A "LIKES" FEATURE FOR A SOCIAL APP (100M+ ROWS,
+-- HIGH WRITE VOLUME, NEEDS FAST "HAS USER X LIKED POST Y" LOOKUPS AND FAST
+-- "TOTAL LIKE COUNT" READS)
+-- ============================================================================
+--
+-- SETUP: a likes table gets ~5,000 writes/second at peak, and the product
+-- needs both (a) an instant "does this user like this post" check when
+-- rendering a post, and (b) a fast "N likes" count shown on every post.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH A: A simple normalized `likes(user_id, post_id, created_at)`
+-- table with a composite primary key (L01, L06), COUNT(*) computed live
+-- ----------------------------------------------------------------------
+--   WHY VALID: fully normalized, no denormalization bugs possible (the
+--   count is always exactly correct, by construction, since it's derived
+--   live from the source of truth) -- the composite PK (user_id,
+--   post_id) gives O(log n) "has user X liked post Y" lookups via the
+--   PK's implicit B-tree index (L06), satisfying requirement (a) cheaply.
+--   COST: requirement (b), the live COUNT(*), gets progressively more
+--   expensive as a popular post accumulates likes -- even with an index
+--   on post_id, counting millions of rows for a viral post on every page
+--   render is a real, scaling-with-popularity cost exactly the posts
+--   that most need a FAST count are the ones this approach makes
+--   slowest to count.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH B: The same normalized `likes` table, PLUS a denormalized
+-- `like_count` column on the `posts` table, updated via a database
+-- TRIGGER (L07) on insert/delete
+-- ----------------------------------------------------------------------
+--   WHY VALID: reads for requirement (b) become an O(1) column lookup on
+--   `posts` -- no counting needed at read time at all -- while requirement
+--   (a) still uses the normalized `likes` table's PK lookup exactly as in
+--   A, so this doesn't sacrifice A's correctness property for the
+--   existence check.
+--   COST: every single INSERT/DELETE on `likes` now ALSO does an UPDATE
+--   on `posts` inside the same transaction (trigger overhead) -- at
+--   5,000 writes/second, this doubles the write workload's lock
+--   contention on `posts` rows specifically for popular posts (many
+--   concurrent likers of the SAME viral post now contend for that one
+--   post's row-level lock on every trigger-fired UPDATE), a real
+--   throughput ceiling under exactly the popular-post conditions this
+--   approach was meant to help with.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH C: The normalized `likes` table for existence checks, PLUS an
+-- async, EVENTUALLY-CONSISTENT `like_count` maintained by a periodic
+-- batch job (or a message-queue-driven counter service) rather than a
+-- synchronous trigger
+-- ----------------------------------------------------------------------
+--   WHY VALID: decouples the write-hot-path latency (a plain INSERT into
+--   `likes`, no trigger, no cross-table lock contention) from the count-
+--   maintenance work entirely -- the count becomes eventually consistent
+--   (briefly stale, typically by seconds) rather than transactionally
+--   exact, which is usually an entirely acceptable tradeoff for a
+--   "like count" UI element that users don't expect to be perfectly
+--   real-time to the single digit.
+--   COST: genuine architectural complexity beyond a single database --
+--   requires either a scheduled job, a queue consumer, or a CDC pipeline
+--   (Data Engineering Notes) to keep the count reasonably fresh, and the
+--   count CAN be visibly stale/wrong for a window after a burst of
+--   likes/unlikes, a real product-behavior tradeoff that must be
+--   explicitly accepted, not discovered as a surprise bug later.
+--
+-- COMPARISON TABLE (Case Study 1):
+--   | Approach | Existence-check speed | Count-read speed | Write-path cost | Count consistency |
+--   |----------|---------------------------|------------------------|-----------------------|--------------------------|
+--   | A: normalized, live COUNT | Fast (PK lookup) | Slow, scales with popularity | Lowest | Always exact |
+--   | B: normalized + trigger-maintained count | Fast | Fast (O(1)) | High (trigger + lock contention on hot rows) | Always exact |
+--   | C: normalized + async count | Fast | Fast (O(1)) | Lowest | Eventually consistent |
+--   At real social-app scale, C is the standard production answer;
+--   B is a reasonable middle ground at more modest scale where trigger
+--   overhead hasn't become a measured bottleneck yet, and A is fine
+--   until a single post's popularity makes live counting visibly slow.
+
+
+-- ============================================================================
+-- CASE STUDY 2 — QUERYING "TOP 5 ORDERS PER CUSTOMER" FROM A LARGE ORDERS
+-- TABLE
+-- ============================================================================
+--
+-- SETUP: an `orders(order_id, customer_id, amount, created_at)` table
+-- with tens of millions of rows; the report needs each customer's 5
+-- highest-value orders.
+
+-- ----------------------------------------------------------------------
+-- APPROACH A: A correlated subquery with LIMIT per customer, driven by a
+-- loop over customers
+-- ----------------------------------------------------------------------
+--   WHY VALID: conceptually the simplest to write and reason about --
+--   for each customer, literally ask the database "give me their top 5"
+--   -- and if the number of distinct customers is small, this can be a
+--   perfectly adequate, easy-to-maintain query.
+--   COST: this pattern (a correlated subquery re-executed per outer row,
+--   or equivalently a per-customer loop from the application layer) is
+--   fundamentally O(customers x per-customer query cost) -- at "tens of
+--   millions of orders" scale with many customers, this is almost always
+--   dramatically slower than a single set-based query, and is exactly
+--   the anti-pattern L05 (CTEs/subqueries) warns against reaching for by
+--   default.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH B: `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY
+-- amount DESC)` in a CTE, filtered to `row_num <= 5` (L04, L05)
+-- ----------------------------------------------------------------------
+--   WHY VALID: this is EXACTLY the problem window functions exist for --
+--   a single pass over the data (conceptually), computing a per-
+--   customer rank without any correlated re-querying, then a simple
+--   outer filter -- the standard, idiomatic, set-based solution, and
+--   PostgreSQL's planner can execute the window function efficiently in
+--   one query plan.
+--   COST: without a supporting index on (customer_id, amount DESC)
+--   (L06), the window function still requires a full sort of the whole
+--   table (or at least a large scan) to compute ranks -- the QUERY
+--   pattern is right, but its actual performance still depends on index
+--   design; assuming "I used a window function" alone guarantees good
+--   performance, without also verifying the query plan (L06's
+--   `EXPLAIN ANALYZE`), is a real, common mistake.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH C: A materialized view (L07-adjacent — precomputed, refreshed
+-- periodically) storing each customer's top-5 orders directly, refreshed
+-- on a schedule
+-- ----------------------------------------------------------------------
+--   WHY VALID: if this report is read FREQUENTLY (e.g. a live dashboard
+--   hit by many users) but the underlying `orders` data doesn't need
+--   the report to reflect the absolute latest second, precomputing the
+--   answer once and serving reads from the small, fast materialized
+--   view is far cheaper per-read than recomputing B's window-function
+--   query on every single page load.
+--   COST: the materialized view is STALE between refreshes (an
+--   eventually-consistent tradeoff, structurally identical to Case
+--   Study 1's Approach C) -- and refreshing it (`REFRESH MATERIALIZED
+--   VIEW`) itself costs real compute, proportional to the full
+--   underlying query's cost, so this only nets out ahead if READS
+--   significantly outnumber the acceptable staleness-refresh interval's
+--   worth of writes.
+--
+-- COMPARISON TABLE (Case Study 2):
+--   | Approach | Query cost at scale | Freshness | Implementation complexity |
+--   |----------|--------------------------|---------------|---------------------------------|
+--   | A: correlated subquery/loop | Poor (scales with customer count) | Live | Lowest |
+--   | B: window function (ROW_NUMBER) | Good, IF properly indexed | Live | Low |
+--   | C: materialized view | Best for reads | Stale between refreshes | Medium (refresh scheduling) |
+--   B is the correct DEFAULT for this class of problem; C is worth the
+--   added complexity specifically when read frequency is high enough
+--   that recomputing B's query on every request becomes the bottleneck.
+
+
+-- ============================================================================
+-- CASE STUDY 3 — STORING SEMI-STRUCTURED, PER-PRODUCT ATTRIBUTES IN AN
+-- E-COMMERCE CATALOG (DIFFERENT PRODUCT CATEGORIES HAVE VERY DIFFERENT
+-- ATTRIBUTE SETS)
+-- ============================================================================
+--
+-- SETUP: a `products` table needs to store category-specific attributes
+-- (shoes: size, width, color; electronics: wattage, voltage, warranty
+-- months) where the attribute SET varies enormously across thousands of
+-- categories, and new categories with new attributes are added routinely.
+
+-- ----------------------------------------------------------------------
+-- APPROACH A: EAV (Entity-Attribute-Value) — a separate
+-- `product_attributes(product_id, attribute_name, attribute_value)`
+-- table (L08's data-modeling discussion)
+-- ----------------------------------------------------------------------
+--   WHY VALID: maximally flexible -- adding a new attribute for a new
+--   category requires ZERO schema changes, just new rows -- genuinely
+--   valuable when the attribute universe is large, unpredictable, and
+--   changes frequently without a coordinated schema-migration process.
+--   COST: querying "products where wattage > 100 AND color = 'red'"
+--   requires MULTIPLE self-joins back onto the same EAV table (one per
+--   attribute filtered on) -- both awkward to write and, per L06's
+--   indexing discussion, hard for the query planner to optimize well
+--   compared to filtering normal typed columns; EAV is a well-known,
+--   frequently-criticized pattern for exactly this query-complexity
+--   reason.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH B: A `JSONB` column on `products` holding all category-
+-- specific attributes, with GIN indexing (L07) for queryable fields
+-- ----------------------------------------------------------------------
+--   WHY VALID: keeps attributes co-located with the product row (no
+--   extra joins needed to read them all back), retains schema
+--   flexibility close to EAV's (new attributes just become new JSON
+--   keys, no migration), AND — critically, unlike naive EAV — a GIN
+--   index on the JSONB column (L07) lets PostgreSQL efficiently query
+--   INTO specific keys (`WHERE attributes @> '{"color": "red"}'`)
+--   without the multi-self-join awkwardness of approach A.
+--   COST: loses strong TYPING and constraint enforcement at the database
+--   level -- nothing stops a bug from writing `"wattage": "one hundred"`
+--   (a string) into a field every OTHER product stores as a number,
+--   silently corrupting the data model's implicit type consistency; this
+--   requires discipline enforced at the APPLICATION layer, which the
+--   database itself doesn't provide for JSONB contents the way it would
+--   for a typed column.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH C: Per-CATEGORY typed tables (e.g. `shoe_products`,
+-- `electronics_products`), each with columns matching that category's
+-- actual attribute set, unified via a shared `products` base table
+-- (L08's inheritance/polymorphism-in-SQL patterns)
+-- ----------------------------------------------------------------------
+--   WHY VALID: full type safety and constraint enforcement PER category
+--   (a `wattage` column can genuinely be declared `NUMERIC NOT NULL`,
+--   with the database itself rejecting bad data) -- the strongest
+--   correctness guarantee of the three, and category-specific queries
+--   run as fast as any ordinary typed-column query, no JSON parsing or
+--   EAV joins involved at all.
+--   COST: every new PRODUCT CATEGORY requires an actual schema migration
+--   (a new table) -- directly the opposite of A/B's "just add data, no
+--   schema change" flexibility -- a real, recurring engineering cost if
+--   new categories are added frequently or by non-engineering staff who
+--   can't run migrations themselves.
+--
+-- COMPARISON TABLE (Case Study 3):
+--   | Approach | Query flexibility for filters | Type safety | New-category cost | Read simplicity |
+--   |----------|------------------------------------|------------------|-------------------------|----------------------|
+--   | A: EAV | Poor (multi-self-join) | None | Zero (just insert rows) | Poor |
+--   | B: JSONB + GIN index | Good | None (app-enforced only) | Zero (just add keys) | Good |
+--   | C: per-category typed tables | Best (native column queries) | Best (DB-enforced) | High (migration per category) | Best, per category |
+--   B is the modern, pragmatic default for genuinely variable, fast-
+--   changing attribute sets; C remains the right choice when a
+--   CATEGORY's attributes are stable and its data quality/type-safety
+--   requirements are strict enough to justify the migration overhead.
+
+
+-- ============================================================================
+-- CASE STUDY 4 — HANDLING A TABLE THAT'S GROWN TOO LARGE FOR COMFORTABLE
+-- QUERY PERFORMANCE (A 500M-ROW EVENTS TABLE, MOSTLY QUERIED BY RECENT
+-- DATE RANGE)
+-- ============================================================================
+--
+-- SETUP: an `events` table logging user actions has grown to 500M rows;
+-- 95% of queries filter to the last 30 days, but a compliance
+-- requirement means old data (up to 3 years) must remain queryable.
+
+-- ----------------------------------------------------------------------
+-- APPROACH A: A single table with a B-tree index on `created_at` (L06)
+-- ----------------------------------------------------------------------
+--   WHY VALID: simplest possible structure -- no partitioning, no
+--   architectural complexity, and a well-maintained B-tree index on the
+--   filter column genuinely helps recent-date-range queries avoid a
+--   full table scan.
+--   COST: at 500M rows, EVEN WITH a good index, index maintenance
+--   overhead (every INSERT updates the B-tree), VACUUM/autovacuum cost,
+--   and backup/restore time all scale with the FULL table size,
+--   regardless of how much of that data is actually "hot" (recently
+--   queried) -- a real, compounding operational cost that a single-
+--   table design has no mechanism to avoid.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH B: Native PostgreSQL declarative table PARTITIONING by date
+-- range (L07), e.g. one partition per month
+-- ----------------------------------------------------------------------
+--   WHY VALID: per L07, queries filtering to a specific date range let
+--   the planner perform PARTITION PRUNING -- entirely skipping
+--   partitions outside the query's date range at the PLANNING stage,
+--   meaning a "last 30 days" query only ever touches 1-2 monthly
+--   partitions' worth of data (and their indexes), not the full 500M-
+--   row table's index -- a direct, structural fix for approach A's
+--   scaling cost, and old partitions can be independently archived/
+--   dropped/compressed without touching recent data at all.
+--   COST: partitioning is a genuine UPFRONT architectural decision
+--   (retrofitting partitioning onto an existing large single table is
+--   real migration work, not a config flag) and queries that DON'T
+--   filter on the partition key (date, here) get NO pruning benefit and
+--   may even see slightly worse performance than a well-indexed single
+--   table, due to the planner needing to consider more relations.
+--
+-- ----------------------------------------------------------------------
+-- APPROACH C: Partitioning (as in B) PLUS moving old partitions to
+-- cheaper storage/a separate archive table or system, keeping only
+-- "hot" recent partitions in the primary, performance-tuned database
+-- ----------------------------------------------------------------------
+--   WHY VALID: directly addresses the compliance requirement's tension
+--   with performance -- the 95%-common-case queries (recent data) hit a
+--   MUCH smaller, cheaper, faster-to-maintain "hot" dataset, while
+--   compliance's rare "query 2-year-old data" need is still satisfiable
+--   against archived data (potentially on cheaper storage, or a
+--   separate system entirely, e.g. a data warehouse from Data
+--   Engineering Notes), without that rarely-queried data's bulk
+--   dragging down every day-to-day query's performance/maintenance cost.
+--   COST: the most operationally complex of the three -- requires an
+--   archival process/policy (when exactly does a partition move? to
+--   where? how is a cross-hot-and-archive query handled if one is ever
+--   needed?), genuine ongoing operational discipline beyond "set up
+--   partitioning once and forget it."
+--
+-- COMPARISON TABLE (Case Study 4):
+--   | Approach | Recent-query performance | Old-data query cost | Operational complexity | Compliance-friendly? |
+--   |----------|-------------------------------|---------------------------|------------------------------|----------------------------|
+--   | A: single table + index | Degrades as table grows | Same as recent (single table) | Lowest | Yes, but all data pays the cost |
+--   | B: date-range partitioning | Good (partition pruning) | Fine (still same DB) | Medium (upfront migration) | Yes |
+--   | C: partitioning + archival | Best | Slower (separate archive) | Highest | Yes, with lowest ongoing cost for hot path |
+--   For a genuinely large, growing, mostly-recent-access table like this
+--   one, B is close to a mandatory baseline at this scale; C is the
+--   natural next step once the archived-but-compliance-required data's
+--   volume itself becomes a measurable cost to keep "hot."
+
+-- This file is reference material -- there is no single runnable script
+-- tying the four case studies together; each SETUP/APPROACH/COST block
+-- above is the actual content of this lesson.

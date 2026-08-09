@@ -1,0 +1,310 @@
+# WHAT: Four realistic Kubernetes operations problems, each solved with
+#       THREE genuinely different, individually defensible approaches
+#       drawn from L01-L08 -- with an explicit comparison table and
+#       reasoning for why each answer is valid under different
+#       constraints.
+# WHY:  "How should this be deployed/scaled/secured" is usually
+#       malformed without knowing the actual traffic pattern, blast-
+#       radius tolerance, and team operational maturity -- L01-L08 gave
+#       you the primitives; this lesson is about choosing between them.
+# LEVEL: Capstone -- read after L01-L08.
+#
+# This file is reference material -- a YAML document whose only "keys"
+# are documentation, not meant to be applied with `kubectl apply`. Before
+# checking each comparison table, try reconstructing it yourself using
+# only L01-L08's concepts.
+
+case_study_1:
+  title: >
+    Scaling a bursty API service (traffic spikes 10x for a few minutes,
+    several times a day, unpredictably)
+  setup: >
+    An API service normally handles moderate steady traffic but spikes
+    to 10x for a few minutes several times daily at unpredictable times
+    (e.g. triggered by external marketing campaigns) -- under-
+    provisioning during a spike means dropped requests; over-provisioning
+    permanently wastes real infrastructure spend.
+  approach_a:
+    name: Horizontal Pod Autoscaler (HPA) on CPU/memory utilization (L06)
+    why_valid: >
+      The standard, lowest-friction reactive scaling mechanism (L06) --
+      as request volume rises, per-pod CPU utilization rises, and HPA
+      adds replicas automatically with no manual intervention or
+      custom metric pipeline needed.
+    cost: >
+      REACTIVE by nature -- there's a real, measurable delay between
+      traffic actually rising, CPU metrics reflecting that rise, HPA's
+      scaling decision, AND new pods becoming ready (image pull +
+      startup + readiness probe passing, L02) -- for a spike that
+      arrives suddenly and peaks within minutes, a meaningful fraction
+      of the spike's duration can pass before new capacity is actually
+      serving traffic, a real dropped-request risk during exactly the
+      spike this mechanism exists to handle.
+  approach_b:
+    name: >
+      HPA scaling on a CUSTOM metric more directly correlated with load
+      (e.g. requests-per-second or queue depth) rather than CPU (L06)
+    why_valid: >
+      Per L06, CPU utilization is often a LAGGING, imprecise proxy for
+      actual load -- a custom metric like requests-per-second reacts to
+      the ACTUAL thing that matters (incoming traffic) more directly and
+      often earlier than CPU utilization does, tightening the reaction-
+      delay problem approach A has, without abandoning HPA's automatic,
+      hands-off scaling model.
+    cost: >
+      Requires standing up a metrics pipeline capable of feeding HPA a
+      custom metric (e.g. via the Prometheus Adapter or a similar
+      custom-metrics API implementation, Observability Notes) -- real,
+      additional infrastructure and monitoring surface beyond HPA's
+      built-in CPU/memory support, and still fundamentally REACTIVE
+      (better signal, same fundamental "detect then scale" delay
+      structure as A).
+  approach_c:
+    name: >
+      Scheduled/predictive pre-scaling -- if spike timing is even
+      loosely predictable (e.g. correlated with known campaign launch
+      times), proactively scale UP the deployment's minimum replica
+      count ahead of the expected spike, scale back down afterward
+      (combining L06's HPA with an external scheduler)
+    why_valid: >
+      Directly solves approach A/B's reaction-delay problem by
+      eliminating the NEED to react at all for predictable spikes --
+      capacity is already in place BEFORE the spike arrives, guaranteed
+      zero cold-start delay for the anticipated portion of the spike.
+    cost: >
+      Only works for spikes with SOME predictability -- genuinely
+      unpredictable spikes get no benefit from this mechanism at all
+      and still need A or B (typically layered underneath as a safety
+      net for the unpredictable remainder) -- and requires building/
+      maintaining the scheduling logic itself (a CronJob adjusting HPA
+      min-replicas, or an external system), a real, separate piece of
+      automation to keep correct as campaign schedules change.
+  comparison_table: >
+    | Approach | Reaction speed | Infra complexity | Fits unpredictable spikes | Fits predictable spikes |
+    |----------|--------------------|------------------------|---------------------------------|-------------------------------|
+    | A: HPA on CPU | Slowest | Lowest | Poorly | Poorly (no advantage taken) |
+    | B: HPA on custom metric | Faster | Medium | Partially better | Poorly (no advantage taken) |
+    | C: scheduled pre-scaling | Fastest (for known spikes) | Medium-high | Not at all (needs A/B as fallback) | Best |
+    Given this case study's SPECIFIC premise (marketing-triggered spikes,
+    likely with SOME advance internal knowledge), C combined with B as a
+    fallback for genuinely surprise spikes is the strongest real-world
+    answer -- pure A is the reasonable minimum viable starting point,
+    not the final answer, once spike patterns are well understood.
+
+case_study_2:
+  title: >
+    Managing database credentials for a deployment (L04's ConfigMaps vs
+    Secrets, and beyond)
+  setup: >
+    A deployment needs a database password, and the team is deciding how
+    rigorously to handle it given moderate security requirements (not a
+    highly-regulated environment, but "don't be careless" applies).
+  approach_a:
+    name: A native Kubernetes Secret (L04), mounted as an env var
+    why_valid: >
+      The built-in, zero-additional-infrastructure mechanism -- base64-
+      encoded (not encrypted by default at rest without additional
+      cluster configuration, per L04's own caveat) and kept separate
+      from application code/ConfigMaps, a real improvement over hard-
+      coding credentials in a ConfigMap or the image itself, achievable
+      with no new tooling.
+    cost: >
+      Per L04, plain Kubernetes Secrets are NOT encrypted at rest by
+      default (only base64-encoded, which is encoding, not
+      encryption) unless the cluster has encryption-at-rest explicitly
+      configured -- and anyone with RBAC read access to Secrets in that
+      namespace can trivially decode them; for anything beyond "don't
+      accidentally commit this to git," native Secrets alone are a
+      fairly weak security boundary.
+  approach_b:
+    name: Sealed Secrets (L04) -- encrypt secrets for safe GitOps storage
+    why_valid: >
+      Per L04, Sealed Secrets let the ENCRYPTED form of a secret be
+      safely committed to a Git repository (only the cluster's private
+      key can decrypt it back into a real Secret) -- directly solves the
+      "how do we manage secrets via GitOps without committing plaintext
+      credentials to version control" problem, a real, common gap plain
+      Secrets alone don't address.
+    cost: >
+      Solves the GIT-STORAGE problem specifically, but doesn't change
+      that the DECRYPTED Secret, once live in the cluster, has the same
+      at-rest/RBAC-access characteristics as approach A -- a genuinely
+      different, narrower problem than full secret lifecycle management
+      (rotation, audit logging, fine-grained access policies) that a
+      dedicated secrets manager provides.
+  approach_c:
+    name: >
+      External Secrets Operator (L04) syncing from a dedicated secrets
+      manager (Vault, AWS Secrets Manager, etc.)
+    why_valid: >
+      Per L04, this centralizes secret storage, rotation, and audit
+      logging in a purpose-built system with genuinely stronger
+      guarantees (encryption at rest by design, fine-grained access
+      policies, rotation without a redeploy in many setups) than either
+      A or B provide on their own -- the strongest security posture of
+      the three, and the standard answer for genuinely regulated
+      environments.
+    cost: >
+      Real, additional infrastructure to operate (the secrets manager
+      itself, plus the operator syncing from it) -- meaningful overhead
+      for a team whose stated requirements are "moderate," not highly
+      regulated; adopting this reflexively for every project regardless
+      of actual sensitivity is over-engineering relative to the stated
+      need.
+  comparison_table: >
+    | Approach | Security strength | GitOps-safe | Operational overhead |
+    |----------|------------------------|-----------------|----------------------------|
+    | A: native Secret | Weakest | No (plaintext risk if committed) | Lowest |
+    | B: Sealed Secrets | Same as A once decrypted | Yes | Low |
+    | C: External Secrets Operator | Strongest | Yes | Highest |
+    For the case study's stated "moderate" requirements, B is a strong,
+    proportionate default (fixes the most common real mistake -- secrets
+    in Git -- without full secrets-manager overhead); C is justified once
+    compliance/audit requirements or secret ROTATION needs become real,
+    not preemptively.
+
+case_study_3:
+  title: >
+    Choosing a storage strategy for a stateful workload (a small
+    PostgreSQL instance backing an internal tool)
+  setup: >
+    An internal tool needs a PostgreSQL database; the team is deciding
+    how to run it on the same Kubernetes cluster already hosting the
+    tool's other services.
+  approach_a:
+    name: A StatefulSet with a PersistentVolumeClaim (L05)
+    why_valid: >
+      Per L05, StatefulSets provide stable network identity and stable
+      storage across pod restarts/rescheduling -- the standard, direct
+      way to run a database-like workload on Kubernetes when the team
+      wants everything, including the database, managed the same way as
+      the rest of the cluster's workloads.
+    cost: >
+      Running a production database via a hand-managed StatefulSet means
+      the TEAM is responsible for backup/restore, failover, version
+      upgrades, and tuning -- none of that operational burden is
+      automated just by using a StatefulSet; L05 provides the storage
+      PRIMITIVE, not a full database-operations solution.
+  approach_b:
+    name: A dedicated database Operator (e.g. CloudNativePG, L07)
+    why_valid: >
+      Per L07, a purpose-built Postgres Operator automates backup/
+      restore, failover, and often rolling version upgrades as
+      declarative, Kubernetes-native resources -- meaningfully closes
+      approach A's operational gap without leaving Kubernetes at all,
+      the standard modern answer for "run Postgres well, on Kubernetes."
+    cost: >
+      Introduces a genuinely new operational dependency (the operator
+      itself) and requires learning its specific CRDs/configuration
+      model -- real, if moderate, additional complexity over a plain
+      StatefulSet, and the team is now trusting the operator's specific
+      backup/failover logic to be correct, a real trust dependency on
+      third-party (if open-source and well-tested) code.
+  approach_c:
+    name: >
+      A managed cloud database service (e.g. RDS, Cloud SQL) OUTSIDE the
+      Kubernetes cluster entirely, with the in-cluster app connecting to
+      it over the network
+    why_valid: >
+      Sidesteps BOTH A and B's "who operates the database correctly"
+      question entirely -- a managed cloud database service handles
+      backup, failover, patching, and scaling as the provider's core
+      product, genuinely the lowest team-operational-burden option of
+      the three for a database this important to get right.
+    cost: >
+      Real, ongoing monetary cost (managed database services are
+      priced accordingly) and means the tool's data no longer lives
+      inside the same Kubernetes cluster/network boundary as everything
+      else -- a genuine architectural inconsistency (some state in-
+      cluster, some out) and a network dependency between the cluster
+      and an external service that didn't exist with A or B.
+  comparison_table: >
+    | Approach | Operational burden on team | Cost | Architectural consistency (all-in-cluster) |
+    |----------|----------------------------------|----------|---------------------------------------------------|
+    | A: plain StatefulSet | Highest | Lowest | Yes |
+    | B: database Operator | Medium | Low-medium | Yes |
+    | C: managed cloud database | Lowest | Highest | No (external dependency) |
+    For an INTERNAL tool (as stated), where a few minutes of downtime or
+    manual recovery is a tolerable risk, A is a defensible, low-cost
+    starting point; B is the right middle ground once "internal tool"
+    graduates to "something people depend on daily"; C is justified when
+    the team explicitly doesn't want ANY database operational burden,
+    regardless of the extra cost and architectural split.
+
+case_study_4:
+  title: >
+    Rolling out a risky change to a critical service (a new version of
+    the payment-processing service)
+  setup: >
+    A new version of a payment-processing service needs to be deployed;
+    a bad rollout could mean real, direct financial/customer impact, so
+    the deployment STRATEGY itself is a real design decision, not an
+    afterthought.
+  approach_a:
+    name: A standard rolling update (L02's default Deployment behavior)
+    why_valid: >
+      Zero extra tooling or process beyond what a normal Kubernetes
+      Deployment already provides -- gradually replaces old pods with
+      new ones, with readiness probes (L02) gating traffic to
+      not-yet-ready new pods, a real, if basic, safety mechanism
+      requiring no additional infrastructure.
+    cost: >
+      A rolling update has NO automated mechanism to detect that the NEW
+      version is behaviorally broken (passes readiness probes but has,
+      say, a subtle payment-calculation bug) and roll back automatically
+      -- by the time a human notices something's wrong, a meaningful
+      fraction of traffic may already be hitting the broken new version,
+      a real, serious risk for a payment-processing service specifically.
+  approach_b:
+    name: A canary deployment (CICD Notes, System Design Case Studies Notes L22) with automated metric-based promotion/rollback
+    why_valid: >
+      Routes a small percentage of real traffic to the new version
+      first, automatically monitoring error rates/latency and only
+      promoting to full rollout if the canary's metrics stay healthy --
+      directly closes approach A's "no automated bad-rollout detection"
+      gap, catching a broken new version while it's only affecting a
+      small fraction of traffic rather than everyone.
+    cost: >
+      Requires a genuinely reliable, low-noise monitoring signal to
+      automate promotion/rollback decisions against (Observability
+      Notes) -- if the chosen metrics are noisy or don't actually
+      capture the specific way this new version might be broken (e.g. a
+      subtle correctness bug with no visible latency/error-rate
+      symptom), the canary process can still promote a broken version
+      with false confidence; canary is only as good as what it measures.
+  approach_c:
+    name: >
+      Blue/green deployment with a FULL manual verification step before
+      traffic cutover (CICD Notes)
+    why_valid: >
+      The new version runs fully, completely isolated from real traffic,
+      allowing exhaustive manual/automated testing against it (including
+      tests a canary's live-traffic-based metrics wouldn't naturally
+      surface, e.g. specific payment-edge-case test transactions) BEFORE
+      any real customer traffic ever reaches it -- for a payment service
+      specifically, the ability to verify correctness with deliberately
+      crafted test cases, not just observed live-traffic metrics, is a
+      genuine, distinct safety advantage.
+    cost: >
+      Requires running TWO full production environments simultaneously
+      during the transition (real infrastructure cost, however
+      temporary) and a manual verification step is, by definition,
+      slower and less automatically scalable than B's automated canary
+      promotion -- a real deployment-velocity cost, appropriate
+      specifically when the verification depth B/A can't match is worth
+      that slowdown.
+  comparison_table: >
+    | Approach | Automated bad-rollout detection | Pre-traffic verification depth | Deployment velocity | Infra cost during rollout |
+    |----------|---------------------------------------|--------------------------------------|---------------------------|--------------------------------|
+    | A: rolling update | None | None (relies on readiness probes only) | Fastest | Lowest |
+    | B: canary + auto-rollback | Yes, metric-based | Limited (live traffic only) | Medium | Medium |
+    | C: blue/green + manual verification | N/A (manual gate before any traffic) | Deepest | Slowest | Highest (duplicate environments) |
+    For a payment-processing service specifically, many teams combine B
+    and C: blue/green with a manual verification gate for deliberate,
+    scripted correctness testing, THEN a canary-style gradual traffic
+    ramp with automated rollback as the final safety net -- using each
+    mechanism for the specific risk it's best suited to catch.
+
+note: >
+  This file is reference material -- see the WHAT/WHY header and the
+  four case studies above. It is not intended to be applied to a cluster.
