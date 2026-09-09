@@ -67,7 +67,7 @@ Checked = done and pushed to `main`.
 - [x] Classical ML Theory Notes
 - [x] Deep Learning Theory Notes
 - [x] LLM Core Theory Notes
-- [ ] ML Frameworks Notes
+- [x] ML Frameworks Notes
 - [ ] LLM Frameworks Notes
 - [ ] LLM Quantization & Inference Notes
 - [ ] Agentic AI & RAG Notes
