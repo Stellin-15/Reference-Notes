@@ -81,7 +81,7 @@ Checked = done and pushed to `main`.
 - [x] System Design Case Studies Notes
 - [x] Testing & QA Engineering Notes
 - [x] Software Architecture & Design Patterns Notes (new domain)
-- [ ] Data Structures & Algorithms Notes (new domain)
+- [x] Data Structures & Algorithms Notes (new domain)
 - [ ] System Design Interview Notes (new domain)
 - [ ] Payments & Fintech Engineering Notes (new domain)
 - [ ] Experimentation & Feature Flags Notes (new domain)
