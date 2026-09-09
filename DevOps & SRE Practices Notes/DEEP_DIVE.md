@@ -149,6 +149,87 @@ on-call person can actually take, or it shouldn't page a human at all
 - *Q: How do you design a fair on-call rotation across time zones?* A: Follow-the-sun rotation where each region's team covers only local waking hours (best fairness, needs 3+ regions), or explicit compensation/time-off for after-hours pages combined with a hard cap on consecutive on-call weeks per person — fairness here is a policy decision, not a scheduling algorithm problem alone.
 
 
+## COMPREHENSIVE TOOL & PRACTICE REFERENCE — COMMON TO UNCOMMON
+
+### Incident management & alerting platforms
+- **PagerDuty / Opsgenie / Splunk On-Call** — the standard on-call
+  paging/escalation-policy tools; almost every mid-size+ company runs one.
+  Key features that matter operationally: escalation chains (page person A,
+  if no ack in 5 min page person B), scheduled overrides, and incident
+  timelines that auto-capture who did what during a response.
+- **Statuspage / Incident.io** — customer-facing status pages and
+  structured internal incident workflow tooling (roles, timeline,
+  postmortem templates) — Incident.io in particular has become common as a
+  dedicated "incident process" tool distinct from the paging tool itself.
+- **FireHydrant** — another incident-response-workflow platform, similar niche to Incident.io.
+
+### Configuration management, beyond Ansible/Puppet/Chef
+- **SaltStack** — less common now, but still found in some large legacy
+  fleets; push+pull hybrid model, historically valued for speed at scale.
+- **Cloud-init** — the near-universal mechanism for FIRST-BOOT
+  configuration of a cloud VM (set hostname, run a script, install
+  packages) before any config-management tool even connects — worth
+  knowing as the layer UNDER Ansible/Puppet, not a replacement for them.
+
+### Deployment strategies & tooling
+- **Feature flags in practice** (LaunchDarkly, Unleash, Flagsmith) — the
+  mechanism that decouples DEPLOY from RELEASE: code ships to production
+  dark, then is turned on gradually/per-segment — see the new
+  Experimentation & Feature Flags domain for the deep version of this.
+- **Progressive delivery** (Flagger, Argo Rollouts) — automates canary
+  analysis: shift 5% of traffic, watch error-rate/latency metrics
+  automatically, promote or roll back WITHOUT a human watching a dashboard.
+- **Blue/green vs canary vs rolling, the real operational difference**:
+  blue/green needs 2x infrastructure momentarily but gives instant rollback
+  (just flip the router back); canary needs live traffic-splitting
+  infrastructure but catches issues on a SMALL blast radius before full
+  rollout; rolling update needs neither extra infra nor traffic-splitting
+  but has no instant full rollback — a mid-rollout failure means finishing
+  or reversing the rollout gradually, either way.
+
+### Monitoring/logging stack choices in the wild
+- **The "ELK/Elastic Stack"** (Elasticsearch, Logstash, Kibana) vs
+  **Grafana stack** (Loki for logs, Prometheus for metrics, Tempo for
+  traces, Grafana for visualization) — ELK is older, more feature-rich for
+  full-text log search; the Grafana stack is lighter-weight and often
+  cheaper at scale because Loki indexes only metadata, not full log content.
+- **Datadog / New Relic / Splunk** — the dominant commercial, all-in-one
+  observability SaaS platforms; chosen over self-hosting specifically to
+  avoid running Prometheus/Grafana/ELK operationally yourselves — the
+  tradeoff is cost, which scales sharply with data volume at real scale.
+
+### Infrastructure testing & validation
+- **Terratest** — Go-based framework for actually spinning up real
+  infrastructure from Terraform code in a test environment and asserting
+  on it, rather than just trusting `terraform plan` output.
+- **InSpec / Serverspec** — assert on a server's ACTUAL state post-config-
+  management-run (is this port open, is this package this exact version) —
+  the testing layer for infrastructure, parallel to unit tests for application code.
+- **Policy-as-code testing**: Conftest/OPA against Terraform plans in CI —
+  reject a plan that would create a public S3 bucket or an unencrypted
+  database BEFORE apply, not after a security audit finds it.
+
+### Backup, disaster recovery & business continuity
+- **RPO vs RTO, precisely**: Recovery Point Objective is how much DATA
+  loss is acceptable (measured in time — "up to 15 minutes of data" means
+  backups/replication at least every 15 min); Recovery Time Objective is
+  how long RESTORATION is allowed to take. These are independent numbers a
+  company sets per system based on business impact, not a single "backup policy."
+- **3-2-1 backup rule** — 3 copies of data, on 2 different media types, 1
+  offsite — still the baseline mental model even in a fully cloud-native
+  backup strategy (e.g. cross-region replication as the "offsite" copy).
+
+### Toil reduction & automation-of-automation
+- **ChatOps** (Slack/Teams bots triggering deploys, rollbacks, or
+  diagnostics via chat commands) — reduces context-switching (stay in
+  chat, don't open five different dashboards) and creates a natural audit
+  log of who ran what, when.
+- **Self-healing infrastructure** — auto-remediation rules (a Lambda/script
+  triggered by a specific CloudWatch alarm that restarts a service or
+  scales out automatically) — the automation tier ABOVE alerting a human,
+  reserved for well-understood, low-risk failure modes only.
+
+
 ## NICHE BUT REAL
 
 - **Chaos Engineering in production** — tools like Gremlin/Chaos Mesh
