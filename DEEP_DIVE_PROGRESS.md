@@ -26,7 +26,7 @@ Checked = done and pushed to `main`.
 - [x] eBPF Notes
 - [x] Edge Computing Notes
 - [x] Identity & Access Management Notes (new domain)
-- [ ] Cryptography Notes (new domain)
+- [x] Cryptography Notes (new domain)
 - [ ] Compliance & Governance Notes (new domain)
 
 ## Batch 4 — Backend & data infra cluster
