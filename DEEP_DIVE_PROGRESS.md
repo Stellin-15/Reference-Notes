@@ -59,7 +59,7 @@ Checked = done and pushed to `main`.
 - [x] Java & JVM Notes (new domain)
 - [x] C# & .NET Notes (new domain)
 - [x] TypeScript Notes (new domain)
-- [ ] Scala Notes (new domain)
+- [x] Scala Notes (new domain)
 - [ ] Windows Internals Notes (new domain)
 - [ ] Embedded Systems & IoT Notes (new domain)
 
