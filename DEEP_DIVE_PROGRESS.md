@@ -77,7 +77,7 @@ Checked = done and pushed to `main`.
 - [x] Data Science Fundamentals Notes
 
 ## Batch 7 — Capstone/breadth + product/career domains
-- [ ] System Design Notes
+- [x] System Design Notes
 - [ ] System Design Case Studies Notes
 - [ ] Testing & QA Engineering Notes
 - [ ] Software Architecture & Design Patterns Notes (new domain)
