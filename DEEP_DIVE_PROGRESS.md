@@ -30,7 +30,7 @@ Checked = done and pushed to `main`.
 - [x] Compliance & Governance Notes (new domain)
 
 ## Batch 4 — Backend & data infra cluster
-- [ ] API Design Notes
+- [x] API Design Notes
 - [ ] FastAPI & Python Web Notes
 - [ ] Full-Stack & Frontend Essentials Notes
 - [ ] SQL Notes
