@@ -43,7 +43,7 @@ Checked = done and pushed to `main`.
 - [ ] Event-Driven & Real-Time AI Systems Notes
 - [ ] Search Engines Notes (new domain)
 - [ ] Data Warehousing & BI Notes (new domain)
-- [ ] Message Queues & Brokers Notes (new domain)
+- [x] Message Queues & Brokers Notes (new domain)
 
 ## Batch 5 — Systems/languages cluster
 - [ ] C++ Notes
