@@ -85,6 +85,59 @@ affecting users shouldn't page anyone at 3am.
 - *Q: Symptom-based vs cause-based alerting — which should page a human?* A: Symptom-based (error rate, latency, availability) should page — it directly reflects user impact; cause-based signals (CPU, memory, disk) are valuable for DASHBOARDS and root-cause investigation but paging on them alone causes alert fatigue from transient spikes that never actually affected users.
 
 
+## COMPREHENSIVE TOOL REFERENCE — COMMON TO UNCOMMON
+
+### Metrics backends
+- **Prometheus** — the open-source default; pull-based (scrapes targets),
+  PromQL query language, pairs with Alertmanager for alert routing/dedup.
+- **VictoriaMetrics / Thanos / Cortex/Mimir** — long-term-storage and
+  horizontally-scalable layers bolted onto or replacing vanilla Prometheus,
+  because Prometheus alone is single-node and has limited retention by
+  design — every company running Prometheus at real scale runs one of these too.
+- **Datadog / New Relic** — commercial all-in-one alternatives; push-based
+  agents, much less operational burden, materially higher cost at scale.
+
+### Tracing backends
+- **Jaeger** — open-source, CNCF, the most common self-hosted tracing
+  backend, pairs naturally with OpenTelemetry instrumentation.
+- **Zipkin** — older, still found in legacy setups, largely superseded by Jaeger/OTel in new deployments.
+- **Tempo** (Grafana) — trace storage optimized to be cheap at scale by
+  indexing minimally (trace ID only) and relying on metrics/logs for discovery.
+- **AWS X-Ray** — the AWS-native tracing service, simplest option if
+  already all-in on AWS Lambda/ECS and not needing cross-cloud portability.
+
+### Logging backends
+- **Loki** (Grafana) — indexes only labels/metadata, not full log text —
+  dramatically cheaper at scale than full-text-indexed alternatives, at
+  the cost of slower ad-hoc full-text search.
+- **Elasticsearch/OpenSearch** — full-text indexed, powerful ad-hoc search,
+  meaningfully more expensive to run at high log volume.
+- **CloudWatch Logs / Azure Monitor Logs** — cloud-native defaults, simplest
+  to wire up if already in that cloud, often the first thing outgrown once
+  cross-service correlation or cost becomes a concern.
+- **Fluentd / Fluent Bit / Vector** — the log-SHIPPING layer (collects logs
+  from every host/container and forwards them to a backend) — Fluent Bit
+  and Vector are the lighter-weight, lower-resource-overhead modern choices
+  over the older, heavier Fluentd/Logstash.
+
+### Dashboarding & visualization
+- **Grafana** — the near-universal open-source visualization layer, works
+  across Prometheus/Loki/Tempo/Elasticsearch/CloudWatch/almost anything via plugins.
+- **Kibana** — Elasticsearch's own native visualization layer.
+- **Dashboards-as-code** (Grafonnet, Terraform grafana provider) — version-
+  controlling dashboard definitions instead of clicking through a UI and
+  hoping someone remembers to back it up — the mature-team default.
+
+### Incident/alert correlation tooling
+- **BigPanda / Moogsoft** — AIOps-style alert-correlation platforms that
+  cluster related alerts from many sources into ONE incident, specifically
+  to fight alert fatigue at organizations with many monitoring tools firing
+  independently for the same underlying root cause.
+- **Anomaly detection** — increasingly built into metrics platforms
+  natively (Datadog Watchdog, CloudWatch Anomaly Detection) rather than
+  static thresholds, catching gradual degradation a fixed threshold would miss.
+
+
 ## NICHE BUT REAL
 
 - **Honeycomb / high-cardinality event-based observability** — a different
