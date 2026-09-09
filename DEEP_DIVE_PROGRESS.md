@@ -24,7 +24,7 @@ Checked = done and pushed to `main`.
 - [x] Observability Notes
 - [x] Auth & Security Notes
 - [x] eBPF Notes
-- [ ] Edge Computing Notes
+- [x] Edge Computing Notes
 - [ ] Identity & Access Management Notes (new domain)
 - [ ] Cryptography Notes (new domain)
 - [ ] Compliance & Governance Notes (new domain)
