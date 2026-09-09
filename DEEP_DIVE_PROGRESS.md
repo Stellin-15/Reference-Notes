@@ -54,7 +54,7 @@ Checked = done and pushed to `main`.
 - [x] OS & Networking Internals Notes
 - [x] Distributed Systems Theory Notes
 - [x] Mobile Development Notes
-- [ ] Blockchain & Web3 Notes
+- [x] Blockchain & Web3 Notes
 - [ ] Mac Basics Notes
 - [ ] Java & JVM Notes (new domain)
 - [ ] C# & .NET Notes (new domain)
