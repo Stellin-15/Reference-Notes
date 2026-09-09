@@ -79,7 +79,7 @@ Checked = done and pushed to `main`.
 ## Batch 7 — Capstone/breadth + product/career domains
 - [x] System Design Notes
 - [x] System Design Case Studies Notes
-- [ ] Testing & QA Engineering Notes
+- [x] Testing & QA Engineering Notes
 - [ ] Software Architecture & Design Patterns Notes (new domain)
 - [ ] Data Structures & Algorithms Notes (new domain)
 - [ ] System Design Interview Notes (new domain)
