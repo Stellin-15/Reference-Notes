@@ -70,6 +70,55 @@ policy so teams can't accidentally (or maliciously) reach each other's workloads
 - *Q: One team's misconfigured job is starving the shared cluster's resources. How do you prevent recurrence structurally, not just fix this incident?* A: ResourceQuotas and LimitRanges per namespace enforced by the platform (not left to team discipline), PodDisruptionBudgets and priority classes so critical workloads are protected, and admission-control policies (OPA/Kyverno — see Kubernetes Notes section 19) requiring resource requests/limits on every deployed workload by default.
 
 
+## COMPREHENSIVE TOOL & PRACTICE REFERENCE — COMMON TO UNCOMMON
+
+### Service catalogs & software templates
+- **Backstage** (Spotify, now CNCF) — the dominant open-source IDP
+  framework; plugins ecosystem covers CI status, cost, security scanning,
+  TechDocs (docs-as-code rendered inside the catalog).
+- **Port / Cortex / OpsLevel** — commercial SaaS alternatives to
+  self-hosting Backstage, trading customization for faster time-to-value
+  and less platform-team maintenance burden.
+- **Service scorecards** — a common pattern layered on top of any catalog:
+  automatically score each service against org standards (has on-call
+  defined? has a runbook? meets test-coverage threshold?) and surface gaps
+  visibly — turns "best practices" from a wiki page into an enforced,
+  visible metric per team.
+
+### Infrastructure abstraction layers
+- **Crossplane** — Kubernetes-native cloud resource provisioning (see
+  Cloud Platforms cluster) — the platform-engineering use case specifically
+  is exposing a SIMPLIFIED custom resource ("give me a database") that
+  Crossplane translates into the full underlying cloud resource graph,
+  hiding Terraform-level complexity from product teams entirely.
+- **Terraform modules as a platform product** — versioned, tested,
+  centrally-maintained modules (`module "vpc"`, `module "eks-cluster"`)
+  that product teams consume rather than writing raw provider resources —
+  the IaC-specific version of a golden path.
+- **Humanitec / kratix** — platform orchestration tools specifically aimed
+  at defining and enforcing golden paths across many services/environments declaratively.
+
+### Environment management
+- **Ephemeral/preview environments** (per-PR environments spun up
+  automatically, e.g. via Vercel/Netlify for frontend, or custom K8s
+  namespace-per-PR setups for backend) — lets reviewers click through a
+  REAL running version of a change instead of reading a diff alone.
+- **Environment-as-a-service platforms** (Qovery, Ambassador Labs' tools) —
+  commercial products specifically automating the "spin up a full-stack
+  preview environment per branch" pattern above.
+
+### Developer experience (DX) measurement
+- **DORA + SPACE frameworks** — DORA (deploy frequency, lead time, change
+  failure rate, MTTR) measures delivery performance; SPACE (Satisfaction,
+  Performance, Activity, Communication, Efficiency) is the broader,
+  more holistic developer-productivity framework increasingly used
+  alongside DORA because DORA alone can't capture things like developer
+  satisfaction or focus-time fragmentation.
+- **Local development parity tools** — Tilt, Skaffold, DevSpace — sync
+  local code changes into a real Kubernetes dev environment automatically,
+  solving the "works differently locally vs in the cluster" platform pain point.
+
+
 ## NICHE BUT REAL
 
 - **Platform engineering vs DevOps vs SRE, precisely**: DevOps is a
