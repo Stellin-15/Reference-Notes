@@ -64,7 +64,7 @@ Checked = done and pushed to `main`.
 - [x] Embedded Systems & IoT Notes (new domain)
 
 ## Batch 6 — ML/AI cluster
-- [ ] Classical ML Theory Notes
+- [x] Classical ML Theory Notes
 - [ ] Deep Learning Theory Notes
 - [ ] LLM Core Theory Notes
 - [ ] ML Frameworks Notes
