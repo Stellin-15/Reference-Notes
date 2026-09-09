@@ -47,7 +47,7 @@ Checked = done and pushed to `main`.
 
 ## Batch 5 — Systems/languages cluster
 - [x] C++ Notes
-- [ ] Rust Notes
+- [x] Rust Notes
 - [ ] Go Notes
 - [ ] Python Notes
 - [ ] Bash & Scripting Notes
