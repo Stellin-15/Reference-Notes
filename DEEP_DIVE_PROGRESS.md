@@ -51,7 +51,7 @@ Checked = done and pushed to `main`.
 - [x] Go Notes
 - [x] Python Notes
 - [x] Bash & Scripting Notes
-- [ ] OS & Networking Internals Notes
+- [x] OS & Networking Internals Notes
 - [ ] Distributed Systems Theory Notes
 - [ ] Mobile Development Notes
 - [ ] Blockchain & Web3 Notes
