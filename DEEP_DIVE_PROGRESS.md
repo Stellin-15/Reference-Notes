@@ -52,7 +52,7 @@ Checked = done and pushed to `main`.
 - [x] Python Notes
 - [x] Bash & Scripting Notes
 - [x] OS & Networking Internals Notes
-- [ ] Distributed Systems Theory Notes
+- [x] Distributed Systems Theory Notes
 - [ ] Mobile Development Notes
 - [ ] Blockchain & Web3 Notes
 - [ ] Mac Basics Notes
