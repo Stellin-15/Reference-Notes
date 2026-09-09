@@ -22,7 +22,7 @@ Checked = done and pushed to `main`.
 - [x] DevOps & SRE Practices Notes
 - [x] Platform Engineering Notes
 - [x] Observability Notes
-- [ ] Auth & Security Notes
+- [x] Auth & Security Notes
 - [ ] eBPF Notes
 - [ ] Edge Computing Notes
 - [ ] Identity & Access Management Notes (new domain)
