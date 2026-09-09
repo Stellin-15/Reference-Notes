@@ -87,7 +87,9 @@ Checked = done and pushed to `main`.
 - [x] Experimentation & Feature Flags Notes (new domain)
 - [x] Web Performance & Accessibility Notes (new domain)
 - [x] Quantum Computing Notes (new domain)
-- [ ] Technical Leadership & Staff Engineering Notes (new domain)
+- [x] Technical Leadership & Staff Engineering Notes (new domain)
+
+## ALL BATCHES COMPLETE — full plan finished.
 
 ---
 **Workflow per file**: write the file -> `git add` -> `git commit` -> `git push` -> move to next file.
