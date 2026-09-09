@@ -73,7 +73,7 @@ Checked = done and pushed to `main`.
 - [x] Agentic AI & RAG Notes
 - [x] MLOps Notes
 - [x] GPU Computing & Distributed Training Notes
-- [ ] Azure AI Services Notes
+- [x] Azure AI Services Notes
 - [ ] Data Science Fundamentals Notes
 
 ## Batch 7 — Capstone/breadth + product/career domains
