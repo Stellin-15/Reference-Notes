@@ -65,7 +65,7 @@ Checked = done and pushed to `main`.
 
 ## Batch 6 — ML/AI cluster
 - [x] Classical ML Theory Notes
-- [ ] Deep Learning Theory Notes
+- [x] Deep Learning Theory Notes
 - [ ] LLM Core Theory Notes
 - [ ] ML Frameworks Notes
 - [ ] LLM Frameworks Notes
