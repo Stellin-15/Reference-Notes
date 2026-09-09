@@ -37,7 +37,7 @@ Checked = done and pushed to `main`.
 - [x] NoSQL & Specialized Databases Notes
 - [x] Redis & Caching Notes
 - [x] Apache Kafka Notes
-- [ ] Apache Spark Notes
+- [x] Apache Spark Notes
 - [ ] Data Engineering Notes
 - [ ] Feature Stores & Modern Data Lake Notes
 - [ ] Event-Driven & Real-Time AI Systems Notes
