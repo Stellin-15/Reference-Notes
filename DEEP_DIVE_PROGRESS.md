@@ -23,7 +23,7 @@ Checked = done and pushed to `main`.
 - [x] Platform Engineering Notes
 - [x] Observability Notes
 - [x] Auth & Security Notes
-- [ ] eBPF Notes
+- [x] eBPF Notes
 - [ ] Edge Computing Notes
 - [ ] Identity & Access Management Notes (new domain)
 - [ ] Cryptography Notes (new domain)
