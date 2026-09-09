@@ -41,7 +41,7 @@ Checked = done and pushed to `main`.
 - [x] Data Engineering Notes
 - [x] Feature Stores & Modern Data Lake Notes
 - [x] Event-Driven & Real-Time AI Systems Notes
-- [ ] Search Engines Notes (new domain)
+- [x] Search Engines Notes (new domain)
 - [x] Data Warehousing & BI Notes (new domain)
 - [x] Message Queues & Brokers Notes (new domain)
 
