@@ -46,7 +46,7 @@ Checked = done and pushed to `main`.
 - [x] Message Queues & Brokers Notes (new domain)
 
 ## Batch 5 — Systems/languages cluster
-- [ ] C++ Notes
+- [x] C++ Notes
 - [ ] Rust Notes
 - [ ] Go Notes
 - [ ] Python Notes
