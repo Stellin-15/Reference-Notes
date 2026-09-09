@@ -40,7 +40,7 @@ Checked = done and pushed to `main`.
 - [x] Apache Spark Notes
 - [x] Data Engineering Notes
 - [x] Feature Stores & Modern Data Lake Notes
-- [ ] Event-Driven & Real-Time AI Systems Notes
+- [x] Event-Driven & Real-Time AI Systems Notes
 - [ ] Search Engines Notes (new domain)
 - [x] Data Warehousing & BI Notes (new domain)
 - [x] Message Queues & Brokers Notes (new domain)
