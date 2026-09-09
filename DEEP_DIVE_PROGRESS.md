@@ -72,7 +72,7 @@ Checked = done and pushed to `main`.
 - [x] LLM Quantization & Inference Notes
 - [x] Agentic AI & RAG Notes
 - [x] MLOps Notes
-- [ ] GPU Computing & Distributed Training Notes
+- [x] GPU Computing & Distributed Training Notes
 - [ ] Azure AI Services Notes
 - [ ] Data Science Fundamentals Notes
 
