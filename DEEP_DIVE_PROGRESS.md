@@ -35,7 +35,7 @@ Checked = done and pushed to `main`.
 - [x] Full-Stack & Frontend Essentials Notes
 - [x] SQL Notes
 - [x] NoSQL & Specialized Databases Notes
-- [ ] Redis & Caching Notes
+- [x] Redis & Caching Notes
 - [ ] Apache Kafka Notes
 - [ ] Apache Spark Notes
 - [ ] Data Engineering Notes
