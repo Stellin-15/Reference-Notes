@@ -61,7 +61,7 @@ Checked = done and pushed to `main`.
 - [x] TypeScript Notes (new domain)
 - [x] Scala Notes (new domain)
 - [x] Windows Internals Notes (new domain)
-- [ ] Embedded Systems & IoT Notes (new domain)
+- [x] Embedded Systems & IoT Notes (new domain)
 
 ## Batch 6 — ML/AI cluster
 - [ ] Classical ML Theory Notes
