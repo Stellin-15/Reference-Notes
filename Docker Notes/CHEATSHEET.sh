@@ -332,3 +332,132 @@ docker builder prune                              # Clear the BuildKit build cac
 #   ENTRYPOINT ["/sbin/tini", "--", "node", "server.js"]
 # Graceful shutdown pattern: catch SIGTERM in-app, drain in-flight requests,
 # exit before Docker's default 10s grace period expires (or extend with `docker stop -t`).
+
+
+# =============================================================================
+# 13. THE CONTAINER RUNTIME STACK — WHAT ACTUALLY RUNS UNDER "docker run"
+# =============================================================================
+
+# Docker is a UX layer on top of a standardized runtime stack. Understanding
+# the layers matters because Kubernetes bypasses Docker entirely and talks
+# to these lower layers directly (this is why "Docker support" was deprecated
+# in Kubernetes 1.24 — kubelet never needed the Docker daemon, only the
+# runtime underneath it):
+#
+#   docker CLI  ->  dockerd (daemon)  ->  containerd (high-level runtime,
+#     manages image pulls, storage, container lifecycle)  ->  runc (low-level
+#     OCI runtime, actually calls clone()/unshare()/pivot_root() to build the
+#     namespaces+cgroups that BECOME the container) -> Linux kernel
+#
+# OCI (Open Container Initiative) defines two specs that make this pluggable:
+#   - Image spec:   what a container image's layers/manifest/config must look like
+#   - Runtime spec: what a "bundle" (rootfs + config.json) a runtime must accept
+# Because of this, runc is swappable:
+#   - gVisor (runsc)  -> intercepts syscalls in a userspace kernel (sandboxed,
+#                          higher isolation, some syscall/perf compatibility cost)
+#   - Kata Containers -> runs each container in a lightweight VM (hardware-level
+#                          isolation — used for untrusted/multi-tenant workloads)
+#   - crun            -> faster, lower-memory runc alternative written in C
+
+ctr images ls                          # Interact with containerd directly (bypassing dockerd)
+ctr run docker.io/library/alpine:latest test echo hi
+
+crictl ps                              # CRI-level inspection (what kubelet actually sees)
+crictl images                             # Images as containerd/CRI-O see them, not dockerd's view
+
+
+# =============================================================================
+# 14. PODMAN — THE DAEMONLESS, ROOTLESS ALTERNATIVE
+# =============================================================================
+
+# Podman is command-compatible with Docker for the vast majority of use cases
+# (`alias docker=podman` works for most workflows) but with two structural
+# differences that matter in enterprise/regulated environments:
+#   1. No background daemon — each `podman run` forks a direct child process,
+#      so there's no single root-owned daemon that, if compromised, owns every
+#      container on the host (Docker's classic "root-equivalent socket" risk).
+#   2. Rootless by default — containers run as your unprivileged user via user
+#      namespaces, not root, even though processes inside the container still
+#      see themselves as root (UID 0 is remapped to an unprivileged host UID).
+# This is why RHEL/Fedora and many federal/regulated shops standardized on it.
+
+podman run -d --name web -p 8080:80 nginx     # Same syntax as docker run, almost 1:1
+podman ps                                        # List running containers
+podman build -t myapp:1.0 .                        # Build (uses the same Dockerfile syntax)
+podman pod create --name mypod -p 8080:80          # Podman's own concept: a "pod" = shared network
+podman pod ps                                         # namespace for multiple containers (mirrors a K8s Pod)
+podman generate kube mypod > pod.yaml                    # Export a Podman pod as a K8s manifest directly
+podman play kube pod.yaml                                   # Run a K8s YAML file locally via Podman — no cluster needed
+systemctl --user start podman.socket                          # Rootless Podman socket, per-user (no root daemon at all)
+
+
+# =============================================================================
+# 15. DOCKER SWARM — THE SIMPLE ALTERNATIVE TO KUBERNETES
+# =============================================================================
+
+# Still asked about in interviews as "when would you NOT reach for Kubernetes."
+# Swarm is built into the Docker CLI/daemon — no separate control plane to
+# install — and trades Kubernetes's flexibility for dramatically lower
+# operational overhead. Reasonable fit for small teams/simple multi-host setups.
+
+docker swarm init --advertise-addr 192.168.1.10   # Initialize a swarm on this node (becomes a manager)
+docker swarm join-token worker                       # Get the token to join more nodes as workers
+docker swarm join --token <token> 192.168.1.10:2377     # Run on a new node to join the swarm
+
+docker node ls                                # List nodes in the swarm
+docker service create --name web --replicas 3 -p 80:80 nginx  # Deploy a replicated service
+docker service ls                                # List running services
+docker service scale web=5                          # Scale a service
+docker service update --image nginx:1.27 web           # Rolling update (built-in, no extra tooling)
+docker stack deploy -c docker-compose.yml mystack          # Deploy a full Compose file as a Swarm stack
+docker stack services mystack                                  # List services in a stack
+
+docker secret create db_password ./password.txt   # Swarm-native secrets (encrypted at rest in the Raft log,
+docker secret ls                                       # mounted as an in-memory tmpfs file inside the container —
+                                                        # this is the Swarm equivalent of a K8s Secret)
+
+
+# =============================================================================
+# 16. MULTI-ARCHITECTURE IMAGES — MANIFEST LISTS
+# =============================================================================
+
+# A "multi-arch image" is really one tag pointing at a manifest LIST — a small
+# index that maps each CPU architecture to its own separate image digest.
+# `docker pull myapp:1.0` on an ARM Mac and an x86 CI runner silently pull
+# different underlying images because the daemon reads the local platform
+# and picks the matching entry automatically.
+
+docker manifest inspect myrepo/myapp:1.0     # Show the manifest list (all platforms it covers)
+docker buildx imagetools inspect myrepo/myapp:1.0  # Modern equivalent, works without a full pull
+
+# Building and publishing one under buildx (see section 9 for buildx setup):
+docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  -t myrepo/myapp:1.0 --push .
+# buildx assembles each platform's image separately (often via QEMU emulation
+# unless building on native hardware for each arch) then pushes ONE manifest
+# list tying them together under the single tag.
+
+
+# =============================================================================
+# 17. RESOURCE ISOLATION INTERNALS — WHAT --memory/--cpus ACTUALLY DO
+# =============================================================================
+
+# `docker run --memory/--cpus` are a thin wrapper over Linux cgroups (control
+# groups) v2. Knowing the underlying files is the difference between guessing
+# and actually debugging an OOM-killed or throttled container:
+
+cat /sys/fs/cgroup/memory.max          # (inside a container's cgroup) the hard memory ceiling
+cat /sys/fs/cgroup/memory.current         # Current usage right now
+cat /sys/fs/cgroup/cpu.max                   # "<quota> <period>" — e.g. "50000 100000" = 0.5 CPU
+docker inspect -f '{{.HostConfig.Memory}}' container_name  # Same value, read via Docker's API
+
+# Namespaces are the OTHER half of "what is a container": PID, NET, MNT, UTS,
+# IPC, and USER namespaces each isolate one kind of resource so the process
+# inside believes it's alone on the machine. `docker run --pid=host` or
+# `--network=host` deliberately punches a hole in one of these — useful for
+# debugging tools (they need to see the real host's processes/network) but a
+# real security boundary loss if left on in production.
+
+nsenter -t $(docker inspect -f '{{.State.Pid}}' container_name) -n ip a
+  # ^ Enter a running container's network namespace directly from the host,
+  #   bypassing `docker exec` entirely — useful when a container has no shell.
