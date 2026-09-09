@@ -50,7 +50,7 @@ Checked = done and pushed to `main`.
 - [x] Rust Notes
 - [x] Go Notes
 - [x] Python Notes
-- [ ] Bash & Scripting Notes
+- [x] Bash & Scripting Notes
 - [ ] OS & Networking Internals Notes
 - [ ] Distributed Systems Theory Notes
 - [ ] Mobile Development Notes
