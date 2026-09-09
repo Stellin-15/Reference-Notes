@@ -31,7 +31,7 @@ Checked = done and pushed to `main`.
 
 ## Batch 4 — Backend & data infra cluster
 - [x] API Design Notes
-- [ ] FastAPI & Python Web Notes
+- [x] FastAPI & Python Web Notes
 - [ ] Full-Stack & Frontend Essentials Notes
 - [ ] SQL Notes
 - [ ] NoSQL & Specialized Databases Notes
