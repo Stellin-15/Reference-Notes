@@ -15,7 +15,7 @@ Checked = done and pushed to `main`.
 - [x] Git & GitHub Notes
 
 ## Batch 2 — New: AI Agents & Automation
-- [ ] AI Agent & Automation Tooling Notes (new domain)
+- [x] AI Agent & Automation Tooling Notes (new domain)
 
 ## Batch 3 — Cloud/Platform/DevOps/Security cluster
 - [ ] Cloud Platforms Notes
