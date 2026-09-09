@@ -53,7 +53,7 @@ Checked = done and pushed to `main`.
 - [x] Bash & Scripting Notes
 - [x] OS & Networking Internals Notes
 - [x] Distributed Systems Theory Notes
-- [ ] Mobile Development Notes
+- [x] Mobile Development Notes
 - [ ] Blockchain & Web3 Notes
 - [ ] Mac Basics Notes
 - [ ] Java & JVM Notes (new domain)
