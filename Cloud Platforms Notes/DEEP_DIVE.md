@@ -219,6 +219,109 @@ of the secondary Aurora cluster to a standalone writer.
 - *Q: Why is "multi-region active-active" so much harder than "multi-AZ" for a stateful service?* A: AZs within a region share a fast, low-latency backbone, so synchronous replication is cheap enough for strong consistency; cross-region links have real speed-of-light latency (tens to hundreds of ms), forcing a choice between synchronous replication (slow writes) or eventual consistency (conflict resolution complexity) — there is no free equivalent of AZ-level synchronous replication at region scale.
 
 
+## COMPREHENSIVE TOOL & SERVICE REFERENCE — COMMON TO UNCOMMON
+
+Everything above mapped to lessons; this section is broader company-usage
+coverage, AWS-first with Azure/GCP equivalents named throughout since almost
+every job posting expects at least passing multi-cloud fluency.
+
+### Compute, beyond EC2/Lambda
+- **ECS** (AWS's own container orchestrator, simpler than EKS, no K8s
+  knowledge needed) vs **Fargate** (serverless compute for ECS/EKS, no node
+  management at all) — a huge fraction of companies run ECS+Fargate
+  specifically to avoid EKS's Kubernetes operational overhead entirely.
+- **Cloud Run** (GCP) / **Azure Container Apps** — the GCP/Azure equivalents
+  of "serverless containers," scale-to-zero, pay-per-request.
+- **Batch computing**: AWS Batch, Azure Batch — managed job scheduling over
+  a pool of compute for large parallel workloads (genomics, rendering,
+  financial simulation) without hand-building a scheduler.
+- **App Engine** (GCP) / **Elastic Beanstalk** (AWS) / **App Service**
+  (Azure) — PaaS "just deploy code" platforms, less common at scale but
+  still common for internal tools and smaller companies wanting minimal ops.
+
+### Storage & data transfer beyond S3/EBS/EFS
+- **Azure Blob Storage** / **GCS** — the direct S3 equivalents; access
+  tiers work almost identically (Hot/Cool/Archive vs Standard/IA/Glacier).
+- **AWS Snowball/Snowcone** / **Azure Data Box** — physical appliances for
+  migrating petabytes of data where network transfer would take too long
+  or cost too much — genuinely still used for large on-prem-to-cloud migrations.
+- **AWS DataSync** / **Azure File Sync** — managed, scheduled data transfer
+  and sync between on-prem and cloud storage, used heavily in migration projects.
+- **FSx** (AWS) — managed Windows File Server, Lustre (HPC), NetApp ONTAP —
+  used when a workload needs a SPECIFIC filesystem protocol EFS doesn't cover.
+
+### Networking, beyond VPC/NAT/CloudFront
+- **Transit Gateway** (AWS) / **Virtual WAN** (Azure) — hub-and-spoke
+  routing across MANY VPCs/VNets without a full mesh of manual peering
+  connections — the standard answer once an org has more than ~5 VPCs to interconnect.
+- **PrivateLink** (AWS) / **Private Endpoint** (Azure) — expose a service
+  privately to other VPCs/accounts without traversing the public internet
+  OR needing full VPC peering — the mechanism behind most SaaS vendors'
+  "connect privately to our service" offering.
+- **WAF** (Web Application Firewall) — AWS WAF, Azure Front Door WAF,
+  Cloudflare — rule-based filtering (SQLi/XSS signatures, rate limiting,
+  geo-blocking) sitting in front of a public-facing app, distinct from a
+  security group (which is IP/port level, not payload-aware).
+- **Global Accelerator** (AWS) — routes traffic over AWS's private backbone
+  to the nearest healthy endpoint, used for latency-sensitive global apps
+  that need more than DNS-based routing alone provides.
+
+### Cloud-native security & governance tooling
+- **AWS Security Hub** / **Azure Defender for Cloud** / **GCP Security
+  Command Center** — centralized aggregation of findings from GuardDuty,
+  Inspector, config compliance checks, etc. into one pane of glass.
+- **AWS Config** / **Azure Policy** — continuous compliance-as-code:
+  define a rule ("all S3 buckets must have encryption enabled") and get
+  flagged (or auto-remediated) the moment a resource drifts from it.
+- **Secrets Manager** (AWS) / **Key Vault** (Azure) / **Secret Manager**
+  (GCP) — managed secret storage with automatic rotation support, the
+  cloud-native alternative to self-hosting Vault when you don't need Vault's
+  dynamic-secrets/multi-cloud flexibility.
+- **AWS Organizations SCPs / Azure Management Groups + Policy** — the
+  org-wide guardrail layer (see L06) — every large company's account/
+  subscription structure is built around these from day one, not bolted on later.
+
+### Hybrid & multi-cloud
+- **AWS Outposts** / **Azure Arc** / **Google Anthos** — extend the cloud
+  provider's control plane and APIs INTO your own datacenter hardware —
+  used by regulated industries (banking, government) needing cloud tooling
+  but data residency/latency requirements that rule out pure public cloud.
+- **VMware Cloud on AWS** — still genuinely common in large enterprises
+  mid-migration, running existing VMware workloads on AWS hardware without
+  a full re-architecture.
+
+### Managed data/streaming services
+- **MSK** (AWS Managed Kafka) / **Event Hubs** (Azure) / **Pub/Sub** (GCP) —
+  managed alternatives to self-hosting Kafka (see Apache Kafka Notes) —
+  MSK is Kafka-API-compatible; Event Hubs and Pub/Sub have their own APIs
+  with Kafka-compatibility shims.
+- **Kinesis** (AWS) — real-time streaming, positioned as AWS's "simpler
+  than Kafka, fully managed" option, commonly chosen when a team doesn't
+  need Kafka's full ecosystem (Kafka Streams, Connect) and wants zero ops.
+- **Glue** (AWS) / **Data Factory** (Azure) — managed ETL orchestration,
+  covered more deeply in Data Engineering Notes; worth knowing they're
+  cloud-native alternatives to self-hosted Airflow.
+
+### Cost management & FinOps tooling
+- **Cost Explorer + Cost Anomaly Detection** (AWS), **Cost Management +
+  Billing** (Azure) — native cost visibility; most companies past a certain
+  size layer a THIRD-PARTY FinOps tool (CloudHealth, Cloudability, Vantage,
+  or the open-source OpenCost for Kubernetes cost allocation) on top for
+  cross-account/cross-cloud rollups the native tools don't do well.
+- **Spot Instance advisors / Compute Optimizer** — AWS-native rightsizing
+  recommendations; a genuinely underused free tool most cost-audits find
+  immediate savings from on the first pass.
+
+### Migration & modernization
+- **AWS Migration Hub / Application Discovery Service** — inventories
+  on-prem workloads and dependencies before a migration project starts —
+  the "know what you actually have" step most failed migrations skipped.
+- **Strangler fig pattern** (architecture, not AWS-specific) — the standard
+  approach to migrating a monolith to cloud/microservices incrementally:
+  route traffic for one function at a time to a new service behind a
+  facade, until the old system has nothing left routing to it.
+
+
 ## NICHE BUT REAL
 
 - **AWS Well-Architected Framework reviews** — a formal audit process
