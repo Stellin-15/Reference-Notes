@@ -18,7 +18,7 @@ Checked = done and pushed to `main`.
 - [x] AI Agent & Automation Tooling Notes (new domain)
 
 ## Batch 3 — Cloud/Platform/DevOps/Security cluster
-- [ ] Cloud Platforms Notes
+- [x] Cloud Platforms Notes
 - [ ] DevOps & SRE Practices Notes
 - [ ] Platform Engineering Notes
 - [ ] Observability Notes
