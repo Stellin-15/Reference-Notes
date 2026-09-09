@@ -42,7 +42,7 @@ Checked = done and pushed to `main`.
 - [ ] Feature Stores & Modern Data Lake Notes
 - [ ] Event-Driven & Real-Time AI Systems Notes
 - [ ] Search Engines Notes (new domain)
-- [ ] Data Warehousing & BI Notes (new domain)
+- [x] Data Warehousing & BI Notes (new domain)
 - [x] Message Queues & Brokers Notes (new domain)
 
 ## Batch 5 — Systems/languages cluster
