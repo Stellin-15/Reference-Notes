@@ -69,7 +69,7 @@ Checked = done and pushed to `main`.
 - [x] LLM Core Theory Notes
 - [x] ML Frameworks Notes
 - [x] LLM Frameworks Notes
-- [ ] LLM Quantization & Inference Notes
+- [x] LLM Quantization & Inference Notes
 - [ ] Agentic AI & RAG Notes
 - [ ] MLOps Notes
 - [ ] GPU Computing & Distributed Training Notes
