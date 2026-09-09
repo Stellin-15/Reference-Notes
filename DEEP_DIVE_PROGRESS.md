@@ -70,7 +70,7 @@ Checked = done and pushed to `main`.
 - [x] ML Frameworks Notes
 - [x] LLM Frameworks Notes
 - [x] LLM Quantization & Inference Notes
-- [ ] Agentic AI & RAG Notes
+- [x] Agentic AI & RAG Notes
 - [ ] MLOps Notes
 - [ ] GPU Computing & Distributed Training Notes
 - [ ] Azure AI Services Notes
