@@ -74,7 +74,7 @@ Checked = done and pushed to `main`.
 - [x] MLOps Notes
 - [x] GPU Computing & Distributed Training Notes
 - [x] Azure AI Services Notes
-- [ ] Data Science Fundamentals Notes
+- [x] Data Science Fundamentals Notes
 
 ## Batch 7 — Capstone/breadth + product/career domains
 - [ ] System Design Notes
