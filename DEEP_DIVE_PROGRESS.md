@@ -34,7 +34,7 @@ Checked = done and pushed to `main`.
 - [x] FastAPI & Python Web Notes
 - [x] Full-Stack & Frontend Essentials Notes
 - [x] SQL Notes
-- [ ] NoSQL & Specialized Databases Notes
+- [x] NoSQL & Specialized Databases Notes
 - [ ] Redis & Caching Notes
 - [ ] Apache Kafka Notes
 - [ ] Apache Spark Notes
