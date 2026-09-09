@@ -20,8 +20,8 @@ Checked = done and pushed to `main`.
 ## Batch 3 — Cloud/Platform/DevOps/Security cluster
 - [x] Cloud Platforms Notes
 - [x] DevOps & SRE Practices Notes
-- [ ] Platform Engineering Notes
-- [ ] Observability Notes
+- [x] Platform Engineering Notes
+- [x] Observability Notes
 - [ ] Auth & Security Notes
 - [ ] eBPF Notes
 - [ ] Edge Computing Notes
