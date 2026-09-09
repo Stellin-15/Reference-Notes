@@ -57,7 +57,7 @@ Checked = done and pushed to `main`.
 - [x] Blockchain & Web3 Notes
 - [x] Mac Basics Notes
 - [x] Java & JVM Notes (new domain)
-- [ ] C# & .NET Notes (new domain)
+- [x] C# & .NET Notes (new domain)
 - [ ] TypeScript Notes (new domain)
 - [ ] Scala Notes (new domain)
 - [ ] Windows Internals Notes (new domain)
