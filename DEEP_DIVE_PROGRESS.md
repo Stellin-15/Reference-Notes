@@ -49,7 +49,7 @@ Checked = done and pushed to `main`.
 - [x] C++ Notes
 - [x] Rust Notes
 - [x] Go Notes
-- [ ] Python Notes
+- [x] Python Notes
 - [ ] Bash & Scripting Notes
 - [ ] OS & Networking Internals Notes
 - [ ] Distributed Systems Theory Notes
