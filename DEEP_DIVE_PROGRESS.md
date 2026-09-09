@@ -85,7 +85,7 @@ Checked = done and pushed to `main`.
 - [x] System Design Interview Notes (new domain)
 - [x] Payments & Fintech Engineering Notes (new domain)
 - [x] Experimentation & Feature Flags Notes (new domain)
-- [ ] Web Performance & Accessibility Notes (new domain)
+- [x] Web Performance & Accessibility Notes (new domain)
 - [ ] Quantum Computing Notes (new domain)
 - [ ] Technical Leadership & Staff Engineering Notes (new domain)
 
