@@ -95,7 +95,7 @@ Checked = done and pushed to `main`.
 Each single-cheatsheet domain grows into L01–L08 lessons covering every
 major section of its official documentation's table of contents. The
 existing CHEATSHEET stays as the quick reference. One commit per lesson.
-- [ ] TypeScript Notes
+- [x] TypeScript Notes
 - [ ] Java & JVM Notes
 - [ ] C# & .NET Notes
 - [ ] Scala Notes

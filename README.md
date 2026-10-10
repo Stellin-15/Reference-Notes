@@ -672,6 +672,22 @@ Goroutines/channels through gRPC, profiling, and production deployment.
 
 ---
 
+### [TypeScript Notes](TypeScript%20Notes/) — The Full Handbook, Type System to TS 7.0
+Covers every chapter of the official TypeScript Handbook and Reference, checked against TypeScript 7.0 (the native Go compiler, July 2026). Every lesson is a runnable `.ts` file that type-checks under `strict` and runs; the "this is an error" examples are verified to actually fail. `CHEATSHEET.md` remains the quick-reference.
+
+| File | Topic |
+|------|-------|
+| [L01_basics_and_everyday_types.ts](TypeScript%20Notes/L01_basics_and_everyday_types.ts) | Static checking, primitives, arrays/tuples, unions, type vs interface, literal widening, null/undefined, any/unknown/never, inference |
+| [L02_narrowing_and_functions.ts](TypeScript%20Notes/L02_narrowing_and_functions.ts) | Every narrowing construct, type predicates, assertion functions, exhaustiveness, call/construct signatures, generics, overloads, `this` |
+| [L03_objects_classes_enums.ts](TypeScript%20Notes/L03_objects_classes_enums.ts) | Property modifiers, index signatures, classes (visibility, `#private`, statics, abstract, `this` types), enums, symbols, `using`, iterators/generators |
+| [L04_type_manipulation_and_utility_types.ts](TypeScript%20Notes/L04_type_manipulation_and_utility_types.ts) | keyof/typeof/indexed access, conditional types and `infer`, mapped types, template literal types, every built-in utility type |
+| [L05_modules_namespaces_declaration_merging.ts](TypeScript%20Notes/L05_modules_namespaces_declaration_merging.ts) | ESM/CJS, module resolution, recommended configs per scenario, interop, namespaces, declaration merging, augmentation, triple-slash |
+| [L06_declaration_files_js_decorators_mixins_jsx.ts](TypeScript%20Notes/L06_declaration_files_js_decorators_mixins_jsx.ts) | Writing/publishing `.d.ts`, library templates, JSDoc typing, standard decorators, mixins, JSX |
+| [L07_project_configuration_and_tooling.ts](TypeScript%20Notes/L07_project_configuration_and_tooling.ts) | tsconfig reference by category, tsc CLI, project references, watch, build tools, migration, TS 6.0→7.0 upgrade auditor |
+| [L08_type_compatibility_and_architecture.ts](TypeScript%20Notes/L08_type_compatibility_and_architecture.ts) | Assignability rules, variance, the soundness holes, 4.0→7.0 timeline, capstone: a from-scratch Zod-style schema library |
+
+---
+
 ### [Redis & Caching Notes](Redis%20%26%20Caching%20Notes/) — Caching, Streams, and Distributed Patterns
 All Redis data types through clustering, Sentinel, and production hardening.
 
