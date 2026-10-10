@@ -704,6 +704,22 @@ Follows the dev.java learning path and the JDK 25 docs, updated through JDK 26 (
 
 ---
 
+### [C# & .NET Notes](C%23%20%26%20.NET%20Notes/) — C# 14 / .NET 10 LTS, Language to ASP.NET Core & EF Core
+Follows the Microsoft Learn C#, .NET, ASP.NET Core and EF Core docs for C# 14 / .NET 10 LTS, with notes on .NET 11 and C# 15 (previews). Every lesson is a .NET 10 **file-based app**: run it with `dotnet run Lxx.cs`, no project file needed. All eight were run warning-free on the .NET 10.0.401 SDK. `CHEATSHEET.md` remains the quick reference.
+
+| File | Topic |
+|------|-------|
+| [L01_fundamentals_and_type_system.cs](C%23%20%26%20.NET%20Notes/L01_fundamentals_and_type_system.cs) | File-based apps, built-in types, value vs reference, boxing, nullable types, null-conditional assignment, strings, tuples/records/structs, decimal money |
+| [L02_oop_generics_extension_members.cs](C%23%20%26%20.NET%20Notes/L02_oop_generics_extension_members.cs) | Primary constructors, required/init, `field` properties, virtual/override/new, static abstract interfaces, compound operators, generic math, C# 14 extension blocks, events |
+| [L03_delegates_patterns_linq_exceptions.cs](C%23%20%26%20.NET%20Notes/L03_delegates_patterns_linq_exceptions.cs) | Delegates & closures, expression trees, every pattern kind, rules engine, LINQ incl. CountBy/AggregateBy/LeftJoin, exception design |
+| [L04_collections_spans_performance.cs](C%23%20%26%20.NET%20Notes/L04_collections_spans_performance.cs) | Collection costs, frozen/immutable/concurrent, Span/Memory/stackalloc, ArrayPool, SearchValues, a zero-allocation feed parser |
+| [L05_async_concurrency_channels.cs](C%23%20%26%20.NET%20Notes/L05_async_concurrency_channels.cs) | async/await internals, ValueTask, WhenAll/WhenAny/WhenEach, cancellation, IAsyncEnumerable, Channels, Parallel, Lock, TimeProvider |
+| [L06_runtime_gc_reflection_interop.cs](C%23%20%26%20.NET%20Notes/L06_runtime_gc_reflection_interop.cs) | Tiered JIT/PGO/OSR, GC modes & generations, Dispose pattern, reflection/attributes/UnsafeAccessor, source generators, LibraryImport, Native AOT, diagnostics |
+| [L07_aspnetcore_minimal_apis.cs](C%23%20%26%20.NET%20Notes/L07_aspnetcore_minimal_apis.cs) | Self-testing ASP.NET Core 10 API: options, DI lifetimes & keyed services, middleware order, validation, ProblemDetails, rate limiting, output cache, health, BackgroundService |
+| [L08_efcore_testing_architecture.cs](C%23%20%26%20.NET%20Notes/L08_efcore_testing_architecture.cs) | EF Core 10 on SQLite: SQL translation, N+1 vs Include vs projection, tracking, transactions, concurrency, bulk ops; testing, architecture, Aspire, containers |
+
+---
+
 ### [Redis & Caching Notes](Redis%20%26%20Caching%20Notes/) — Caching, Streams, and Distributed Patterns
 All Redis data types through clustering, Sentinel, and production hardening.
 

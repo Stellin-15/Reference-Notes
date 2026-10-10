@@ -97,7 +97,7 @@ major section of its official documentation's table of contents. The
 existing CHEATSHEET stays as the quick reference. One commit per lesson.
 - [x] TypeScript Notes
 - [x] Java & JVM Notes
-- [ ] C# & .NET Notes
+- [x] C# & .NET Notes
 - [ ] Scala Notes
 - [ ] Data Structures & Algorithms Notes
 - [ ] Software Architecture & Design Patterns Notes
