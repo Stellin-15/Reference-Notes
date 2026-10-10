@@ -91,6 +91,36 @@ Checked = done and pushed to `main`.
 
 ## ALL BATCHES COMPLETE — full plan finished.
 
+## Batch 8 — Expand thin domains to full lesson sets (official-docs coverage)
+Each single-cheatsheet domain grows into L01–L08 lessons covering every
+major section of its official documentation's table of contents. The
+existing CHEATSHEET stays as the quick reference. One commit per lesson.
+- [ ] TypeScript Notes
+- [ ] Java & JVM Notes
+- [ ] C# & .NET Notes
+- [ ] Scala Notes
+- [ ] Data Structures & Algorithms Notes
+- [ ] Software Architecture & Design Patterns Notes
+- [ ] Search Engines Notes
+- [ ] Message Queues & Brokers Notes
+- [ ] Identity & Access Management Notes
+- [ ] Cryptography Notes
+- [ ] Data Warehousing & BI Notes
+- [ ] Compliance & Governance Notes
+- [ ] Payments & Fintech Engineering Notes
+- [ ] Web Performance & Accessibility Notes
+- [ ] Experimentation & Feature Flags Notes
+- [ ] Windows Internals Notes
+- [ ] Embedded Systems & IoT Notes
+- [ ] System Design Interview Notes
+- [ ] Technical Leadership & Staff Engineering Notes
+- [ ] Quantum Computing Notes
+- [ ] Linux Fundamentals Notes
+- [ ] Git & GitHub Notes
+- [ ] Networking Notes
+- [ ] Ethical Hacking Fundamentals Notes
+- [ ] AI Agent & Automation Tooling Notes
+
 ---
 **Workflow per file**: write the file -> `git add` -> `git commit` -> `git push` -> move to next file.
 **Resume point**: the first unchecked box above.
