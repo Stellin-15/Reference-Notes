@@ -688,6 +688,22 @@ Covers every chapter of the official TypeScript Handbook and Reference, checked 
 
 ---
 
+### [Java & JVM Notes](Java%20%26%20JVM%20Notes/) — Modern Java (JDK 25 LTS) to JVM Internals
+Follows the dev.java learning path and the JDK 25 docs, updated through JDK 26 (March 2026) and JDK 27 (September 2026). Every lesson is a single-file program you run with `java Lxx.java`, and all were run on Temurin 25. `CHEATSHEET.md` remains the quick reference.
+
+| File | Topic |
+|------|-------|
+| [L01_language_basics.java](Java%20%26%20JVM%20Notes/L01_language_basics.java) | Compact source files, primitives & overflow, operators, switch expressions, arrays, strings/text blocks, boxing traps, BigDecimal |
+| [L02_classes_objects_inheritance.java](Java%20%26%20JVM%20Notes/L02_classes_objects_inheritance.java) | Init order, flexible constructor bodies, access control, overriding, interfaces, equals/hashCode, records, enums, sealed types, nested classes |
+| [L03_generics_lambdas_exceptions_annotations.java](Java%20%26%20JVM%20Notes/L03_generics_lambdas_exceptions_annotations.java) | Generics, PECS, erasure, lambdas & method refs, java.util.function, exceptions & try-with-resources, custom annotations + reflection validator |
+| [L04_collections_and_streams.java](Java%20%26%20JVM%20Notes/L04_collections_and_streams.java) | Every collection & its Big-O, sequenced collections, LRU cache, streams, Collectors, Optional, parallel streams, Stream Gatherers |
+| [L05_pattern_matching_io_datetime.java](Java%20%26%20JVM%20Notes/L05_pattern_matching_io_datetime.java) | Type/record/guarded patterns, exhaustive switch over sealed ADTs, NIO.2 files, java.io streams & charsets, java.time & DST |
+| [L06_concurrency_and_virtual_threads.java](Java%20%26%20JVM%20Notes/L06_concurrency_and_virtual_threads.java) | Memory model, locks, atomics, concurrent collections, executors, CompletableFuture, virtual threads, ScopedValue, structured concurrency |
+| [L07_jvm_internals_gc_modules_ffm.java](Java%20%26%20JVM%20Notes/L07_jvm_internals_gc_modules_ffm.java) | Class loading, bytecode, JIT, object layout, G1/ZGC/Shenandoah, jcmd/JFR, AOT cache, JPMS & jlink, MethodHandles, FFM API |
+| [L08_production_java.java](Java%20%26%20JVM%20Notes/L08_production_java.java) | HttpClient, JDBC, KDF/ML-KEM/ML-DSA crypto, logging, Maven/Gradle, JUnit 6, Spring Boot 4, containers; capstone zero-dependency orders service |
+
+---
+
 ### [Redis & Caching Notes](Redis%20%26%20Caching%20Notes/) — Caching, Streams, and Distributed Patterns
 All Redis data types through clustering, Sentinel, and production hardening.
 
