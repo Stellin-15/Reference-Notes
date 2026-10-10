@@ -430,8 +430,8 @@ def _tests() -> None:
         print(f"   {name:<14} → {master_theorem(a, b, f)}")
     k_sort = empirical_order(sorted, [200_000, 1_600_000])
     # For n log n over an 8x size range, the expected slope is 1 + log(8)/log(n) ≈ 1.15,
-    # plus cache effects at large n — so ~1.1-1.3 is "n log n", ~2 would be quadratic.
-    print(f"   empirical exponent of sorted() on shuffled data: ≈{k_sort:.2f} (n log n → ~1.1-1.3; n² → ~2)")
+    # plus cache-miss effects at large n — so ~1.1-1.5 is "n log n", ~2 would be quadratic.
+    print(f"   empirical exponent of sorted() on shuffled data: ≈{k_sort:.2f} (n log n → ~1.1-1.5; n² → ~2)")
 
     print("== two pointers")
     assert pair_with_sum_sorted([1, 3, 4, 6, 8, 11], 10) == (2, 3)   # 4 + 6

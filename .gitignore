@@ -28,3 +28,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# scala-cli / Metals build output (regenerated on every run)
+.scala-build/
+.bsp/
+.metals/
