@@ -720,6 +720,22 @@ Follows the Microsoft Learn C#, .NET, ASP.NET Core and EF Core docs for C# 14 / 
 
 ---
 
+### [Scala Notes](Scala%20Notes/) — Scala 3.9 LTS, Syntax to Metaprogramming
+Follows the official Scala 3 Book plus the Scala 3 language reference, on Scala 3.9 LTS (September 2026). Every lesson is a `scala-cli` script, run with `scala-cli run Lxx.scala`. All of them were compiled and run on Scala 3.9.0 / JDK 25, and each compile-error example was checked to really fail. `CHEATSHEET.md` remains the quick reference.
+
+| File | Topic |
+|------|-------|
+| [L01_basics_and_control_structures.scala](Scala%20Notes/L01_basics_and_control_structures.scala) | Indentation syntax, type hierarchy, interpolators (incl. custom), match, for/yield, try as expression, methods & by-name params |
+| [L02_domain_modeling.scala](Scala%20Notes/L02_domain_modeling.scala) | Classes & companions, traits (linearization, parameters, self types), case classes & smart constructors, enums/ADTs/GADTs, FP state machine, exports |
+| [L03_functions_and_collections.scala](Scala%20Notes/L03_functions_and_collections.scala) | HOFs, currying, partial functions, collection performance table, ~60 operations, views/LazyList/iterators, clickstream funnel analytics |
+| [L04_type_system.scala](Scala%20Notes/L04_type_system.scala) | Bounds, variance rules, union/intersection types, opaque types, structural & path-dependent types, match types, type lambdas, literal types |
+| [L05_contextual_abstractions.scala](Scala%20Notes/L05_contextual_abstractions.scala) | Extension methods, given/using, type classes, named & aggregate context bounds, Mirror-based `derives`, CanEqual, conversions, context functions |
+| [L06_functional_programming_and_errors.scala](Scala%20Notes/L06_functional_programming_and_errors.scala) | Purity, Option/Either/Try, for-comprehension desugaring & better fors, error accumulation, folds, runtimeChecked, a tiny IO with retry |
+| [L07_concurrency.scala](Scala%20Notes/L07_concurrency.scala) | Futures & Promises, ExecutionContexts, virtual threads, Ox direct-style concurrency (par, race, supervised, channels), Cats Effect/ZIO/Pekko map |
+| [L08_metaprogramming_interop_tooling.scala](Scala%20Notes/L08_metaprogramming_interop_tooling.scala) | inline & compiletime ops, macros (quotes/splices), Java interop, scala-cli/sbt/Mill, MUnit/ScalaCheck, Scala.js/Native/Spark, 2→3 migration |
+
+---
+
 ### [Redis & Caching Notes](Redis%20%26%20Caching%20Notes/) — Caching, Streams, and Distributed Patterns
 All Redis data types through clustering, Sentinel, and production hardening.
 

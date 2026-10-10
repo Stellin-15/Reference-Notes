@@ -98,7 +98,7 @@ existing CHEATSHEET stays as the quick reference. One commit per lesson.
 - [x] TypeScript Notes
 - [x] Java & JVM Notes
 - [x] C# & .NET Notes
-- [ ] Scala Notes
+- [x] Scala Notes
 - [ ] Data Structures & Algorithms Notes
 - [ ] Software Architecture & Design Patterns Notes
 - [ ] Search Engines Notes
